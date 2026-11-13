@@ -6,6 +6,7 @@ import { setupHotWallet } from "@near-wallet-selector/hot-wallet";
 import { setupIntearWallet } from "@near-wallet-selector/intear-wallet";
 import { setupMeteorWallet } from "@near-wallet-selector/meteor-wallet";
 import { setupSender } from "@near-wallet-selector/sender";
+import { Buffer } from "buffer";
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import { factoryId, networkId, rpcUrl } from "@/lib/near";
 
@@ -65,8 +66,12 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
   const signMessage = useCallback(async (message: string, recipient: string, nonce: string) => {
     const wallet = await (await selector()).wallet();
     if (!wallet.signMessage) throw new Error("This wallet does not support NEP-413 message signing.");
-    const bytes = Uint8Array.from(atob(nonce), (character) => character.charCodeAt(0));
-    const signed = await wallet.signMessage({ message, recipient, nonce: bytes as never });
+    // Wallet Selector validates the NEP-413 nonce with Buffer.isBuffer(), not
+    // merely by its bytes.  Preserve the challenge's exact 32 bytes while
+    // passing the browser Buffer polyfill expected by every selector module.
+    const nonceBytes = Buffer.from(nonce, "base64");
+    if (nonceBytes.length !== 32) throw new Error("Human-pass challenge has an invalid nonce.");
+    const signed = await wallet.signMessage({ message, recipient, nonce: nonceBytes as never });
     if (!signed) throw new Error("Wallet did not return a message signature.");
     return signed;
   }, []);
