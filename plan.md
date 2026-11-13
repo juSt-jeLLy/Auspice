@@ -743,11 +743,21 @@ Factory public methods:
 - `list_coins(from_index, limit)`;
 - `get_code_hash()`.
 
+Factory creation behavior:
+
+- Any account may call `create_coin`; no allowlist or creator role is required.
+- The `creator_id` stored in `config` must equal the transaction signer.
+- The factory derives the coin account as `<lowercase-symbol>.<factory-account>` and rejects an existing or pending account.
+- The attached deposit funds that new account's state. If the batched account creation or initialization fails, the factory refunds the creator.
+- The factory creates the coin account without an access key, applies the configured global contract hash, and calls the coin's immutable initializer.
+- The factory owner may update the global code hash only for future coin creation. A created keyless coin is unaffected.
+
 Coin public change methods:
 
 - `storage_deposit(account_id, registration_only)`;
 - `request_genesis_allocation(pass, requested_amount)`;
 - `settle_genesis()`;
+- `finalize_genesis()`;
 - `withdraw_refund()`;
 - `open_signal_door(door_id, signal_proof)`;
 - `claim_signal_door(door_id, human_pass)`;
@@ -771,6 +781,13 @@ Coin public view methods:
 - `get_refundable_near(account_id)`;
 - `is_pass_consumed(pass_hash)`;
 - `get_verification_bundle()`.
+
+Genesis settlement behavior:
+
+- After the Genesis close timestamp, any account may call settlement for a specific requested participant account; settlement does not require that participant's private key.
+- A participant allocation can settle only once.
+- `finalize_genesis()` is permissionless after the close timestamp. It enables standard transfers and permanently removes the unused portion of the Genesis reserve from mintability.
+- A valid Genesis request remains settleable after finalization, so a participant cannot lose a valid allocation because a third party enabled transfers first.
 
 ### 9.8 Internal methods
 
@@ -808,6 +825,8 @@ No method may replace public keys, source IDs, predicates, amounts, or dates.
 No method may mint outside `settle_genesis` or `claim_signal_door`.
 
 No method may send attached allocation NEAR to a creator account automatically.
+
+Unused Genesis reserve must be added to permanently unmintable supply when Genesis is finalized.
 
 ### 9.10 Important implementation decision
 
