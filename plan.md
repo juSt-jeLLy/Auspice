@@ -377,6 +377,8 @@ Every Door includes a fixed allocation cap.
 
 A valid attestation may open a Door only once.
 
+The contract stores the hash of each accepted attestation response and rejects that response hash if it is submitted again, including against another Door.
+
 Opening a Door must be permissionless.
 
 Claiming from a Door requires a fresh eligible human pass.
@@ -386,6 +388,8 @@ A Genesis participant is not eligible for the same Door if the chosen rule is â€
 Closing a Door must be permissionless after its deadline.
 
 Closing a Door removes unclaimed units from mintability and emits a burn receipt.
+
+After a Door closes, another configured locked Door may open. The lifecycle reaches `Finished` only after no configured Door remains locked or open.
 
 ### 6.4 Signal predicate format
 
@@ -958,6 +962,7 @@ Never claim an unsigned response is attested.
 - Pin the expected signal public key in the coin configuration.
 - Bind output to `coin_id` and `door_id`.
 - Bind output to a unique request nonce.
+- Bind the signed proof message to the source response hash as well as the coin, Door, source ID, and expiry.
 - Include an expiration time.
 - Reject stale proofs.
 - Reject mismatched source IDs.
@@ -965,6 +970,10 @@ Never claim an unsigned response is attested.
 - Reject duplicate proof hashes.
 - Record the accepted output hash on-chain.
 - Show the full verification bundle in the frontend.
+
+### 10.9 On-chain event history
+
+The coin keeps an append-only on-chain event list for Genesis requests and settlement, Genesis finalization, Door opening, Door claims, and Door closure/burn. It emits a matching `EVENT_JSON` log for each recorded event. The `get_verification_bundle` view returns the configured TEE identifiers, Door states, and recent event history for independent inspection.
 
 ---
 

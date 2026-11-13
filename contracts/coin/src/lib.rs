@@ -22,7 +22,9 @@ enum StorageKey {
     GenesisRequests,
     GenesisClaimed,
     UsedPasses,
+    AcceptedProofs,
     Doors,
+    Events,
 }
 
 #[near(serializers = [borsh, json])]
@@ -132,6 +134,27 @@ pub struct BirthCertificate {
     pub permanently_unmintable: U128,
 }
 
+#[near(serializers = [borsh, json])]
+#[derive(Clone)]
+pub struct AuspiceEvent {
+    pub id: u64,
+    pub kind: String,
+    pub actor_id: AccountId,
+    pub door_id: Option<u16>,
+    pub amount: U128,
+    pub timestamp_ns: u64,
+}
+
+#[near(serializers = [json])]
+pub struct VerificationBundle {
+    pub coin_id: AccountId,
+    pub lifecycle: Lifecycle,
+    pub tee_wasm_hash: Base64VecU8,
+    pub signal_public_key: Base64VecU8,
+    pub doors: Vec<SignalDoor>,
+    pub events: Vec<AuspiceEvent>,
+}
+
 #[near(contract_state)]
 #[derive(PanicOnDefault)]
 pub struct AuspiceCoin {
@@ -143,10 +166,13 @@ pub struct AuspiceCoin {
     genesis_requests: LookupMap<AccountId, Balance>,
     genesis_claimed: LookupMap<AccountId, bool>,
     used_passes: LookupMap<String, bool>,
+    accepted_proofs: LookupMap<String, bool>,
     doors: Vector<SignalDoor>,
+    events: Vector<AuspiceEvent>,
     total_requested: Balance,
     minted_supply: Balance,
     permanently_unmintable: Balance,
+    event_count: u64,
 }
 
 #[near]
@@ -208,10 +234,13 @@ impl AuspiceCoin {
             genesis_requests: LookupMap::new(StorageKey::GenesisRequests),
             genesis_claimed: LookupMap::new(StorageKey::GenesisClaimed),
             used_passes: LookupMap::new(StorageKey::UsedPasses),
+            accepted_proofs: LookupMap::new(StorageKey::AcceptedProofs),
             doors,
+            events: Vector::new(StorageKey::Events),
             total_requested: 0,
             minted_supply: 0,
             permanently_unmintable: 0,
+            event_count: 0,
         }
     }
 
@@ -240,6 +269,7 @@ impl AuspiceCoin {
             .insert(account, prior + requested_amount.0);
         self.total_requested += requested_amount.0;
         self.consume(pass.nonce);
+        self.emit("genesis_request", None, requested_amount.0);
     }
 
     /// Permissionless after the deadline: each participant settles its immutable request.
@@ -262,6 +292,7 @@ impl AuspiceCoin {
         self.token.internal_deposit(&account_id, allocation);
         self.minted_supply += allocation;
         self.genesis_claimed.insert(account_id, true);
+        self.emit("genesis_settled", None, allocation);
     }
 
     pub fn finalize_genesis(&mut self) {
@@ -279,6 +310,7 @@ impl AuspiceCoin {
             .0
             .saturating_sub(self.total_requested);
         self.lifecycle = Lifecycle::Live;
+        self.emit("genesis_finalized", None, 0);
     }
 
     pub fn open_signal_door(&mut self, door_id: u16, proof: SignalProof) {
@@ -287,6 +319,11 @@ impl AuspiceCoin {
             "AUSPICE[DOOR] Genesis is not live"
         );
         self.verify_proof(&proof, door_id);
+        let proof_key = hex(&env::sha256(&proof.response_hash.0));
+        require!(
+            !self.accepted_proofs.contains_key(&proof_key),
+            "AUSPICE[PROOF] proof has already been used"
+        );
         let door = self.door_mut(door_id);
         require!(
             door.status == DoorStatus::Locked,
@@ -296,7 +333,9 @@ impl AuspiceCoin {
         door.opened_at_ns = Some(env::block_timestamp());
         door.closes_at_ns = Some(env::block_timestamp() + door.config.claim_window_ns);
         door.proof_hash = Some(Base64VecU8(env::sha256(&proof.response_hash.0)));
+        self.accepted_proofs.insert(proof_key, true);
         self.lifecycle = Lifecycle::DoorOpen;
+        self.emit("door_opened", Some(door_id), 0);
     }
 
     pub fn claim_signal_door(&mut self, door_id: u16, pass: HumanPass, amount: U128) {
@@ -333,6 +372,7 @@ impl AuspiceCoin {
         self.token.internal_deposit(&account, amount.0);
         self.minted_supply += amount.0;
         self.consume(pass.nonce);
+        self.emit("door_claimed", Some(door_id), amount.0);
     }
 
     pub fn close_signal_door(&mut self, door_id: u16) {
@@ -350,7 +390,16 @@ impl AuspiceCoin {
             DoorStatus::ClosedBurned
         };
         self.permanently_unmintable += remaining;
-        self.lifecycle = Lifecycle::Finished;
+        self.lifecycle = if self
+            .doors
+            .iter()
+            .any(|door| door.status == DoorStatus::Locked)
+        {
+            Lifecycle::Live
+        } else {
+            Lifecycle::Finished
+        };
+        self.emit("door_closed", Some(door_id), remaining);
     }
 
     pub fn get_launch_config(&self) -> LaunchConfig {
@@ -389,6 +438,25 @@ impl AuspiceCoin {
     pub fn is_pass_consumed(&self, nonce: String) -> bool {
         self.used_passes.contains_key(&nonce)
     }
+    pub fn events(&self, limit: Option<u32>) -> Vec<AuspiceEvent> {
+        let count = self.events.len() as usize;
+        let limit = limit.unwrap_or(64).min(256) as usize;
+        self.events
+            .iter()
+            .skip(count.saturating_sub(limit))
+            .cloned()
+            .collect()
+    }
+    pub fn get_verification_bundle(&self) -> VerificationBundle {
+        VerificationBundle {
+            coin_id: env::current_account_id(),
+            lifecycle: self.lifecycle,
+            tee_wasm_hash: self.config.tee_wasm_hash.clone(),
+            signal_public_key: self.config.signal_public_key.clone(),
+            doors: self.list_doors(),
+            events: self.events(Some(256)),
+        }
+    }
 
     fn refresh_lifecycle(&mut self) {
         if self.lifecycle == Lifecycle::Draft
@@ -414,6 +482,22 @@ impl AuspiceCoin {
     }
     fn consume(&mut self, nonce: String) {
         self.used_passes.insert(nonce, true);
+    }
+    fn emit(&mut self, kind: &str, door_id: Option<u16>, amount: Balance) {
+        self.event_count += 1;
+        let event = AuspiceEvent {
+            id: self.event_count,
+            kind: kind.into(),
+            actor_id: env::predecessor_account_id(),
+            door_id,
+            amount: U128(amount),
+            timestamp_ns: env::block_timestamp(),
+        };
+        self.events.push(event);
+        env::log_str(&format!(
+            "EVENT_JSON:{{\"standard\":\"auspice\",\"version\":\"1.0.0\",\"event\":\"{}\"}}",
+            kind
+        ));
     }
     fn assert_live(&self) {
         require!(
@@ -478,8 +562,12 @@ impl AuspiceCoin {
             "AUSPICE[PROOF] proof binding mismatch"
         );
         let message = format!(
-            "auspice:signal:v1:{}:{}:{}:{}",
-            proof.coin_id, proof.door_id, proof.source_id, proof.expires_at_ns
+            "auspice:signal:v1:{}:{}:{}:{}:{}",
+            proof.coin_id,
+            proof.door_id,
+            proof.source_id,
+            proof.expires_at_ns,
+            hex(&proof.response_hash.0)
         );
         let signature: [u8; 64] = proof
             .signature
@@ -499,6 +587,10 @@ impl AuspiceCoin {
             "AUSPICE[PROOF] signature failed"
         );
     }
+}
+
+fn hex(bytes: &[u8]) -> String {
+    bytes.iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
 #[near]
