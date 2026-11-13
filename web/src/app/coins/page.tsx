@@ -1,2 +1,2 @@
-import { CoinDashboard } from "@/components/coin-dashboard";
-export default function CoinsPage() { return <CoinDashboard />; }
+import { LaunchExplorer } from "@/components/launch-explorer";
+export default function CoinsPage() { return <LaunchExplorer />; }

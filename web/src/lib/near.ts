@@ -25,6 +25,12 @@ export type CoinSnapshot = {
   signalRequests: Array<{ request_id: number; door_id: number; nonce: string; requester_id: string; requested_at_ns: number; status: "Pending" | "Verified" | "Rejected"; completed_at_ns?: number | null; failure_reason?: string | null }>;
 };
 
+export type FactoryCoin = { account_id: string; creator_id: string; name: string; symbol: string; created_at_ns: number };
+
+export async function listFactoryCoins(fromIndex = 0, limit = 50): Promise<FactoryCoin[]> {
+  return view<FactoryCoin[]>(factoryId, "list_coins", { from_index: fromIndex, limit });
+}
+
 async function rpc<T>(method: string, params: object): Promise<T> {
   const response = await fetch(rpcUrl, {
     method: "POST",

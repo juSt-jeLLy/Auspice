@@ -1,0 +1,12 @@
+.git
+target
+**/target
+node_modules
+web/node_modules
+web/.next
+.env
+.env.*
+web/.env.local
+*.pem
+tmp
+tmp/**

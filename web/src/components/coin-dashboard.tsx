@@ -13,7 +13,7 @@ export function CoinDashboard({ accountId = coinId }: { accountId?: string }) {
   const { accountId: walletId, call, signMessage } = useWallet();
   const refresh = useCallback(async () => { try { setError(null); setCoin(await readCoin(accountId)); } catch (cause) { setError(cause instanceof Error ? cause.message : "Could not load this coin."); } }, [accountId]);
   useEffect(() => { void refresh(); }, [refresh]);
-  const requestDoor = async (doorId: number) => { setBusy(true); try { await call(accountId, "request_signal_check", { door_id: doorId }, "1"); await refresh(); } catch (cause) { setError(cause instanceof Error ? cause.message : "Signal submission failed."); } finally { setBusy(false); } };
+  const requestDoor = async (doorId: number) => { setBusy(true); try { await call(accountId, "request_signal_check", { door_id: doorId }, "100000000000000000000000"); await refresh(); } catch (cause) { setError(cause instanceof Error ? cause.message : "Signal submission failed."); } finally { setBusy(false); } };
   const requestGenesis = async () => {
     if (!walletId || !coin) return;
     setBusy(true);
