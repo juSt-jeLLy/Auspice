@@ -2,15 +2,15 @@
 
 All contracts and the Ship Signal proof launch use NEAR testnet only.
 
-## Deployed factory
+## Retired testnet factory
 
-- Factory account: `auspice-yagnesh.testnet`
-- Factory owner: `auspice-yagnesh.testnet`
+- Former factory account: `auspice-yagnesh.testnet`
+- Former factory owner: `auspice-yagnesh.testnet`
 - Pinned global coin code hash: `4Uab5k15uKw5fqSPyjFZccnPuF4HeqcQwY5knancJLKp`
 - Global coin-code transaction: [HYk5GE22QL2QZm9qLvHuk8A5FbDAccpgfqT3dKQP1nw](https://explorer.testnet.near.org/transactions/HYk5GE22QL2QZm9qLvHuk8A5FbDAccpgfqT3dKQP1nw)
 - Factory deployment/initialization: [5mHA4TDchJs9mHRfc6n9i9u73ZKJm9Z9A4rtyc2e4Xom](https://explorer.testnet.near.org/transactions/5mHA4TDchJs9mHRfc6n9i9u73ZKJm9Z9A4rtyc2e4Xom)
 
-Factory views verified immediately after deployment: `coin_count = 0`, owner matches the listed account, and the stored hash matches the global coin code hash.
+The factory had `coin_count = 0` and was deliberately deleted on 2026-11-13. Transaction [`DCvmPpzzLf6NVSPfbxFHonJEyun2Sj2QsLVJSmkibWEp`](https://explorer.testnet.near.org/transactions/DCvmPpzzLf6NVSPfbxFHonJEyun2Sj2QsLVJSmkibWEp) transferred the released balance/storage to `auspice-yourname.testnet`. Do not treat the listed code hash or account as a live deployment.
 
 Install the NEAR deployment CLI once before using the deployment script:
 
@@ -35,17 +35,7 @@ AUSPICE_FACTORY_OWNER_ID=<testnet-account-to-record-as-owner> \
 scripts/deploy-testnet.sh
 ```
 
-The deployed `auspice-yagnesh.testnet` factory has `coin_count = 0`, so do **not** reinitialize it. After the new coin artifact is globally uploaded, retain its state and update only the future-coin hash:
-
-```sh
-scripts/build-contracts.sh
-AUSPICE_FACTORY_ID=auspice-yagnesh.testnet \
-AUSPICE_FACTORY_OWNER_ID=auspice-yagnesh.testnet \
-AUSPICE_FACTORY_EXISTS=1 \
-scripts/deploy-testnet.sh
-```
-
-Global-code upload consumes permanent account storage. It is not a cancelable deployment and cannot return the storage used by the old global code. Ensure the factory account has enough testnet NEAR before running the command; the previous upload consumed roughly 35 NEAR.
+Create and fund a new factory account before deployment. The previous account was intentionally retired; do not reuse its old deployment variables or assume a deleted testnet account name can be recreated.
 
 The factory account itself must be funded and have its full-access signing key available to `near-cli-rs`. The deployment script stores the coin WASM as a NEAR global contract, then initializes the factory with the resulting immutable code hash. Coin creators subsequently call `create_coin` on the factory; no factory allowlist is involved.
 
