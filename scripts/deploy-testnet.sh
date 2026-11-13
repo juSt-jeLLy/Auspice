@@ -15,6 +15,11 @@ test -f "$factory_wasm" || { printf '%s\n' "Run scripts/build-contracts.sh first
 hash=$(near contract deploy-as-global use-file "$coin_wasm" as-global-hash "$AUSPICE_FACTORY_ID" network-config testnet sign-with-keychain send 2>&1 | tr -d '\033' | sed -n 's/.*Wasm code hash: *\([1-9A-HJ-NP-Za-km-z][1-9A-HJ-NP-Za-km-z]*\).*/\1/p' | tail -n 1)
 test -n "$hash" || { printf '%s\n' "Could not read the global coin code hash from the NEAR CLI output." >&2; exit 1; }
 
-near contract deploy "$AUSPICE_FACTORY_ID" use-file "$factory_wasm" with-init-call new json-args "{\"owner_id\":\"$AUSPICE_FACTORY_OWNER_ID\",\"coin_code_hash\":\"$hash\"}" prepaid-gas '30 Tgas' attached-deposit '0 NEAR' network-config testnet sign-with-keychain send
-printf '%s\n' "Factory deployed: $AUSPICE_FACTORY_ID"
+if [ "${AUSPICE_FACTORY_EXISTS:-0}" = "1" ]; then
+  near contract call-function as-transaction "$AUSPICE_FACTORY_ID" set_coin_code_hash json-args "{\"coin_code_hash\":\"$hash\"}" prepaid-gas '30 Tgas' attached-deposit '0 NEAR' sign-as "$AUSPICE_FACTORY_OWNER_ID" network-config testnet sign-with-keychain send
+  printf '%s\n' "Existing factory retained; future coin code hash updated: $AUSPICE_FACTORY_ID"
+else
+  near contract deploy "$AUSPICE_FACTORY_ID" use-file "$factory_wasm" with-init-call new json-args "{\"owner_id\":\"$AUSPICE_FACTORY_OWNER_ID\",\"coin_code_hash\":\"$hash\"}" prepaid-gas '30 Tgas' attached-deposit '0 NEAR' network-config testnet sign-with-keychain send
+  printf '%s\n' "Factory deployed: $AUSPICE_FACTORY_ID"
+fi
 printf '%s\n' "Pinned coin code hash: $hash"

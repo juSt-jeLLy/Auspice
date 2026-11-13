@@ -6,7 +6,7 @@ export const coinId = process.env.NEXT_PUBLIC_COIN_ID ?? "";
 export type Lifecycle = "Draft" | "GenesisOpen" | "GenesisSettling" | "Live" | "DoorOpen" | "Finished";
 
 export type Door = {
-  config: { door_id: number; source_id: string; source_url: string; reserve: string; user_cap: string; claim_window_ns: number; new_humans_only: boolean; predicate_version: number };
+  config: { door_id: number; template: "GithubRelease" | "UsgsEarthquake" | "SportsScore" | "PublicAccountPost"; source_id: string; source_url: string; predicate: { version: number; required_tag?: string | null }; verifier_wasm_url: string; verifier_wasm_hash: string; verifier_build_target: string; reserve: string; user_cap: string; claim_window_ns: number; new_humans_only: boolean };
   status: "Locked" | "Open" | "ClosedClaimed" | "ClosedBurned";
   opened_at_ns?: number | null;
   closes_at_ns?: number | null;
@@ -22,6 +22,7 @@ export type CoinSnapshot = {
   doors: Door[];
   supply: { maximum_mintable_supply: string; minted_supply: string; permanently_unmintable: string; remaining_mintable_supply: string };
   events: Array<{ id: number; kind: string; actor_id: string; door_id?: number | null; amount: string; timestamp_ns: number }>;
+  signalRequests: Array<{ request_id: number; door_id: number; nonce: string; requester_id: string; requested_at_ns: number; status: "Pending" | "Verified" | "Rejected"; completed_at_ns?: number | null; failure_reason?: string | null }>;
 };
 
 async function rpc<T>(method: string, params: object): Promise<T> {
@@ -49,15 +50,16 @@ export async function view<T>(accountId: string, methodName: string, args: objec
 
 export async function readCoin(accountId = coinId): Promise<CoinSnapshot | null> {
   if (!accountId) return null;
-  const [metadata, launch, lifecycle, doors, supply, events] = await Promise.all([
+  const [metadata, launch, lifecycle, doors, supply, events, signalRequests] = await Promise.all([
     view<CoinSnapshot["metadata"]>(accountId, "ft_metadata"),
     view<CoinSnapshot["launch"]>(accountId, "get_launch_config"),
     view<Lifecycle>(accountId, "get_lifecycle"),
     view<Door[]>(accountId, "list_doors"),
     view<CoinSnapshot["supply"]>(accountId, "get_supply_status"),
     view<CoinSnapshot["events"]>(accountId, "events", { limit: 24 }),
+    view<CoinSnapshot["signalRequests"]>(accountId, "list_signal_requests", { from_index: 0, limit: 50 }),
   ]);
-  return { metadata, launch, lifecycle, doors, supply, events };
+  return { metadata, launch, lifecycle, doors, supply, events, signalRequests };
 }
 
 export const explorerAccount = (accountId: string) => `https://testnet.nearblocks.io/address/${accountId}`;

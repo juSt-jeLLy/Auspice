@@ -1,4 +1,4 @@
-# Auspice Signal Doors
+# Auspice: programmable fair launches
 
 ## Build, testnet, demo, and submission plan
 
@@ -8,19 +8,25 @@
 
 **Working product name:** Auspice
 
-**One-line pitch:** A NEP-141 memecoin whose supply enters circulation only through an equal-access human launch and later, attested real-world Signal Doors—not founder discretion or bot speed.
+**One-line pitch:** A permissionless NEAR launch platform where any creator can publish a NEP-141 coin with a human-gated Genesis and later supply released only by immutable, TEE-verified real-world Signal Doors.
 
 **Core promise:** Supply follows a public rule. Bots do not receive privileged allocations. The contract, not a backend, settles every allocation and burn.
 
 **Product positioning:** A protocol for memecoins with a credible birth and a non-discretionary future.
 
-**Public framing:** Auspice gives a memecoin two immutable ceremonies: a human-gated genesis, then real-world Signal Doors for its future supply. The creator cannot silently allocate more tokens after launch; unused Door allocation becomes permanently unmintable.
+**Public framing:** Auspice gives every supported memecoin two immutable ceremonies: a human-gated Genesis, then real-world Signal Doors for its future supply. The creator cannot silently allocate more tokens after launch; unused Door allocation becomes permanently unmintable.
 
 **Short lines to test in the demo and README:**
 
 - No insiders at birth. No discretion after.
 - Born to humans. Released by reality.
 - Every token must earn its way into circulation.
+
+### Platform decision: source templates, not arbitrary post-launch rules
+
+Auspice is a platform, not a weather coin. A creator selects one or more supported Signal Door templates while launching a coin. Version one enables GitHub releases end-to-end; USGS earthquake reports, official sports scores, and approved public-account posts are explicitly modeled future adapters, not unverified launch options. Each Door freezes its source adapter, exact source identity, predicate parameters, TEE WASM URL/hash/build target, allocation reserve, claim cap, eligibility rule, and deadline.
+
+Community members may submit an **evaluation request** for an already configured Door. They may not create a new source, predicate, reserve, or Door after the coin is launched. The UI records those requests in a public Submitted Signals queue (`pending`, `failed`, `verified`, `open`, `closed/burned`). This preserves permissionless participation without turning future supply into a discretionary vote or an arbitrary-URL oracle.
 
 ---
 
@@ -78,7 +84,7 @@ Auspice makes the coin’s origin and future issuance part of the meme.
 Auspice gives every supported coin two immutable ceremonies:
 
 1. **Genesis Ceremony:** an equal-price, capped allocation for wallet-bound, human-verified participants.
-2. **Signal Doors:** later allocation windows triggered only by an immutable real-world rule verified through an attested TEE result.
+2. **Signal Doors:** later allocation windows triggered only by an immutable source-template rule verified through an attested TEE result.
 
 The coin’s supply is not discretionary.
 
@@ -151,7 +157,7 @@ The success metric is whether the rules correctly produce a fair, inspectable al
 
 **Participant** completes a human pass and submits a capped allocation request.
 
-**Signal watcher** monitors the public event and submits an attested proof once it occurs.
+**Signal submitter** requests evaluation of an already configured Door and pays the attached OutLayer execution deposit. The submitter has no mint authority.
 
 **Verifier** inspects the contract configuration, events, and TEE evidence.
 
@@ -161,13 +167,13 @@ The success metric is whether the rules correctly produce a fair, inspectable al
 
 ### 3.2 Main user stories
 
-As a creator, I can configure a coin’s name, symbol, fixed supply, initial price, caps, and Signal Doors before launch.
+As a creator, I can configure a coin’s name, symbol, fixed supply, initial price, Genesis policy, and supported-template Signal Doors before launch.
 
 As a participant, I can see exactly when allocation opens and what I can receive.
 
 As a participant, I can prove my pass is bound to my wallet and cannot be reused.
 
-As a signal watcher, I can inspect the configured source and trigger condition before I submit a proof.
+As a signal submitter, I can inspect the configured source and trigger condition, submit an evaluation request, and follow its public status without gaining allocation privileges.
 
 As a verifier, I can reproduce the contract’s decision from immutable configuration and public receipts.
 
@@ -187,47 +193,45 @@ Auspice is not a generic CAPTCHA product.
 
 Auspice is not a guarantee of one-human-one-wallet identity.
 
-Auspice is not an oracle claiming objective truth about arbitrary websites.
+Auspice is not an oracle claiming objective truth about arbitrary websites or an arbitrary-URL fetch service.
 
 Auspice is not mainnet-ready after the hackathon.
 
 ---
 
-## 4. Final demo coin
+## 4. Platform proof coin
 
-The platform may support multiple launch templates later.
-
-For the hackathon, ship one polished, live testnet demonstration coin.
+The platform supports multiple immutable source templates. For the hackathon, ship one polished, live testnet proof coin that demonstrates the platform without making rain its identity.
 
 ### 4.1 Demo identity
 
-**Name:** Raincheck
+**Working name:** Ship Signal
 
-**Ticker:** RAIN
+**Working ticker:** SHIP
 
-**Meme:** “The forecast decides when the next humans get in.”
+**Meme:** “Ship it, then let the next humans in.”
 
-**Demo signal:** Rain in Mumbai on Thursday.
+**Demo signal:** a specified public GitHub repository publishes a release matching a frozen tag/predicate.
 
-**Reason:** The rule is understandable in one sentence and visually demonstrable.
+**Reason:** This demonstrates the general platform with a public structured API, no weather overlap, and an event the team can intentionally reproduce on testnet. Sports, earthquake, and approved-public-account templates remain supported platform types, not the flagship identity.
 
 ### 4.2 Demo supply configuration
 
 Use deliberately small testnet values.
 
-Maximum mintable supply: `1,000,000 RAIN`.
+Maximum mintable supply: `1,000,000 SHIP`.
 
-Genesis reserve: `700,000 RAIN`.
+Genesis reserve: `700,000 SHIP` (70%).
 
-Signal Door reserve: `300,000 RAIN`.
+Signal Door reserve: `300,000 SHIP` (30%).
 
 Number of Signal Doors: `3`.
 
-Per-door mintable amount: `100,000 RAIN`.
+Per-door mintable amount: `100,000 SHIP`.
 
-Genesis participant cap: `10,000 RAIN`.
+Genesis participant cap: `10,000 SHIP`.
 
-Signal Door participant cap: `5,000 RAIN`.
+Signal Door participant cap: `5,000 SHIP`.
 
 Genesis duration: `15 minutes` for the recorded demo.
 
@@ -299,7 +303,7 @@ NEP-141 does not decide fair allocation.
 
 NEP-141 does not verify a CAPTCHA.
 
-NEP-141 does not verify an external weather event.
+NEP-141 does not itself verify an external real-world event.
 
 NEP-141 does not create liquidity.
 
@@ -397,13 +401,13 @@ Keep the MVP predicate narrow and deterministic.
 
 Do not build an arbitrary-code execution language inside the contract.
 
-For the demo, use a weather predicate with a strict schema.
+For the proof coin, use a GitHub-release predicate with a strict schema.
 
 Example configuration:
 
 ```json
 {
-  "kind": "weather_precipitation",
+  "kind": "github_release",
   "source_id": "open_meteo_mumbai",
   "latitude_e6": 19076000,
   "longitude_e6": 72877700,
@@ -430,14 +434,14 @@ Suggested fields:
 {
   "version": 1,
   "kind": "genesis" ,
-  "coin_id": "rain.auspice.testnet",
+  "coin_id": "ship.auspice-yagnesh.testnet",
   "door_id": null,
   "account_id": "alice.testnet",
   "nonce": "hex-encoded-random-nonce",
   "issued_at_ns": "...",
   "expires_at_ns": "...",
   "max_allocation": "10000000000000000000000",
-  "tee_wasm_hash": "sha256:...",
+  "verifier_wasm_hash": "sha256:...",
   "signature": "base64..."
 }
 ```
@@ -462,7 +466,7 @@ A person can potentially acquire several accounts and solve several challenges.
 
 Device fingerprinting should not be claimed unless actually implemented and privacy-reviewed.
 
-The TEE proves execution of pinned code; it does not prove a weather provider is universally correct.
+The TEE proves execution of pinned code; it does not prove an upstream source is universally correct.
 
 The source response, source URL, response hash, fetch time, and normalized output must be displayed.
 
@@ -566,7 +570,7 @@ auspice/
 │       ├── Cargo.toml
 │       └── src/lib.rs
 ├── tee/
-│   ├── weather-oracle/
+│   ├── auspice-verifier/
 │   │   ├── Cargo.toml
 │   │   ├── src/main.rs
 │   │   ├── README.md
@@ -696,9 +700,7 @@ pub struct LaunchConfig {
     pub genesis_close_at_ns: u64,
     pub doors: Vec<DoorConfig>,
     pub human_pass_public_key: PublicKey,
-    pub tee_wasm_hash: CryptoHash,
     pub outlayer_account_id: AccountId,
-    pub outlayer_project_id: String,
     pub max_signal_age_ns: u64,
     pub no_creator_genesis_allocation: bool,
     pub version: u16,
@@ -710,14 +712,21 @@ pub struct LaunchConfig {
 ```rust
 pub struct DoorConfig {
     pub door_id: u16,
+    pub template: SignalTemplate,
     pub source_id: String,
+    pub source_url: String,
     pub predicate: SignalPredicate,
+    pub verifier_wasm_url: String,
+    pub verifier_wasm_hash: CryptoHash,
+    pub verifier_build_target: String,
     pub reserve: Balance,
     pub user_cap: Balance,
     pub claim_window_ns: u64,
     pub eligible_only_if_not_genesis_participant: bool,
 }
 ```
+
+`SignalTemplate` is a closed enum: `GithubRelease`, `UsgsEarthquake`, `SportsScore`, or `PublicAccountPost`. The v1 verifier and frontend enable `GithubRelease`; the remaining variants fail closed until each receives an audited adapter and separately published verifier artifact. `SignalPredicate` is template-specific structured data, never arbitrary JavaScript, arbitrary HTTP URLs, or a post-launch user-supplied expression. A Door may be evaluated only against its own pinned `WasmUrl { url, hash, build_target }`; using an OutLayer project is optional discovery metadata, never the mutable active-version authority.
 
 ### 9.6 DoorState fields
 
@@ -766,6 +775,8 @@ Coin public change methods:
 - `finalize_genesis()`;
 - `withdraw_refund()`;
 - `request_signal_check(door_id)`;
+- `get_signal_request(request_id)`;
+- `list_signal_requests(from_index, limit)`;
 - `claim_signal_door(door_id, human_pass)`;
 - `close_signal_door(door_id)`;
 - `ft_transfer(receiver_id, amount, memo)`;
@@ -827,7 +838,7 @@ No normal transfer may occur before lifecycle `Live`.
 
 No method may modify `LaunchConfig` after initialization.
 
-No method may replace public keys, source IDs, predicates, amounts, or dates.
+No method may replace public keys, source templates, source IDs/URLs, predicates, verifier URLs/hashes/build targets, amounts, or dates.
 
 No method may mint outside `settle_genesis` or `claim_signal_door`.
 
@@ -871,7 +882,7 @@ For Auspice, this division is non-negotiable:
 - **OutLayer TEE:** executes the published signal-verifier or human-pass verifier program, can keep provider secrets out of the browser, and returns inspectable evidence of what that program processed.
 - **Frontend/backend relay:** only requests an execution or submits its result. It has no authority to open a Door, mint tokens, alter rules, or accept an expired/replayed pass.
 
-The attestation proves that a specified program ran in the approved Intel TDX environment with specified inputs and produced the specified output. It does **not** prove that an upstream weather/API source is objectively true, that the verifier program has no bug, or that a CAPTCHA means one unique real human. The verifier and contract must therefore enforce source provenance, freshness, wallet binding, nonce use, expiry, caps, and transparent limitations.
+The attestation proves that a specified program ran in the approved Intel TDX environment with specified inputs and produced the specified output. It does **not** prove that an upstream API source is objectively true, that the verifier program has no bug, or that a CAPTCHA means one unique real human. The verifier and contract must therefore enforce source provenance, freshness, wallet binding, nonce use, expiry, caps, and transparent limitations.
 
 ### 10.2 Testnet endpoints
 
@@ -883,23 +894,23 @@ Verify current addresses and API requirements in OutLayer documentation before d
 
 The OutLayer docs identify `worker.outlayer.testnet` as the testnet worker registration contract.
 
-### 10.3 Weather oracle WASM responsibilities
+### 10.3 Generic event-verifier WASM responsibilities
 
 The WASM binary must accept deterministic input.
 
-The input includes source identifier, coordinates, expected weekday, threshold, and a request nonce.
+The input includes the request ID/nonce, coin and Door IDs, the immutable template, source identity, source URL, and template-specific predicate parameters.
 
-The program fetches the configured HTTPS endpoint.
+The program fetches only the configured allowlisted HTTPS endpoint for its source template.
 
-The program parses only the expected JSON fields.
+The program parses only the expected JSON fields for that template.
 
-The program normalizes timestamps to UTC.
+The program normalizes timestamps to UTC and rejects a response outside its bounded freshness window.
 
-The program determines whether the predicate passes.
+The program determines whether the template-specific predicate passes.
 
 The program produces canonical JSON output.
 
-The output includes a source URL, source response hash, fetched time, normalized date, normalized precipitation, predicate result, and nonce.
+The output includes template name, source ID/URL, source-response hash, fetched time, normalized event facts, predicate result, request ID, coin ID, Door ID, and nonce.
 
 The output must not include secrets.
 
@@ -908,12 +919,11 @@ The output must not include secrets.
 ```json
 {
   "version": 1,
-  "source_id": "open_meteo_mumbai",
-  "source_url": "https://example.invalid/weather?...",
+  "template": "GithubRelease",
+  "source_id": "github_release:owner/repository",
+  "source_url": "https://api.github.com/repos/owner/repository/releases/latest",
   "fetched_at_utc": "2026-11-13T12:00:00Z",
-  "observed_date_utc": "2026-11-12",
-  "weekday_utc": 4,
-  "precipitation_mm_x100": 125,
+  "event_facts": { "tag_name": "v1.0.0", "published_at_utc": "2026-11-12T12:00:00Z" },
   "predicate_passed": true,
   "request_nonce": "...",
   "response_sha256": "...",
@@ -981,16 +991,16 @@ Never claim an unsigned response is attested.
 
 The TEE is external compute, but it must never be the authority that changes token supply. The same `auspice_coin` NEP-141 contract that owns balances and mint logic also owns the full Signal Door state machine.
 
-1. **Immutable launch configuration.** At initialization, the contract stores the accepted OutLayer callback account/path, expected signal-verifier WASM hash, fixed source and predicate, Door caps/durations, and the public key or policy identifier used for human passes. These fields have no admin update method.
-2. **Permissionless request.** Any wallet calls `request_signal_check(door_id)`. The contract rejects an already open/closed Door, creates a unique `request_id` and nonce in state, and requests the configured OutLayer testnet execution for the hash-pinned WASM.
-3. **Attested execution.** OutLayer runs the pinned verifier WASM in its TEE. The program fetches/parses the fixed source and returns canonical output containing `request_id`, nonce, Door ID, source/result hashes, fetch time, predicate result, and verifier WASM hash.
+1. **Immutable Door configuration.** At initialization, the contract stores each Door’s closed source template, source identity/URL, predicate parameters, exact OutLayer `WasmUrl` (`url`, SHA-256 hash, build target), caps/durations, and human-pass policy. These fields have no admin update method.
+2. **Permissionless submission.** Any wallet calls `request_signal_check(door_id)`. The contract rejects an already open/closed Door or a still-live request for that Door, creates a unique request ID and nonce, records it in the Submitted Signals queue, and requests the Door’s exact hash-pinned WASM from OutLayer testnet.
+3. **Attested execution.** OutLayer runs the exact pinned verifier WASM in its TEE. The program fetches/parses the fixed template source and returns canonical output containing `request_id`, nonce, coin/Door IDs, template, source/result hashes, fetch time, predicate result, and verifier WASM hash.
 4. **Authenticated callback.** The asynchronous `on_signal_result(request_id, result)` callback is private. It accepts only the configured OutLayer callback route and only an outstanding request created by this coin contract. A browser, creator, relayer, or arbitrary wallet cannot call it successfully.
-5. **On-chain validation.** Before opening a Door, the contract matches the response against its own immutable state: request ID and nonce, Door ID, expected WASM hash, expected source/predicate version, freshness deadline, successful predicate, and one-time Door status. It records the accepted output/proof hash for inspection.
+5. **On-chain validation.** Before opening a Door, the contract matches the response against its own immutable state: request ID and nonce, coin/Door IDs, source template/identity, exact verifier URL/hash/build target, predicate version, freshness deadline, successful predicate, and one-time Door status. It records the accepted output/proof hash for inspection.
 6. **Only the contract opens the Door.** On passing every check, the contract changes the Door from `Locked` to `Open`; it does not mint a discretionary creator allocation.
 7. **Only the contract mints.** A claimant calls `claim_signal_door` with a fresh wallet-bound human pass. The contract verifies the configured signature/policy, coin/Door/account binding, expiry, cap, and unused nonce. Only then does its custom mint logic credit NEP-141 balance.
 8. **Permissionless close/burn.** After the immutable deadline, anyone may call `close_signal_door`. The contract marks any unused Door reserve permanently unmintable and records a burn event.
 
-The frontend or a relay may help a user initiate a request, but it is not trusted: it cannot open a Door, change a rule, bypass a human-pass check, mint, or stop a different user from calling the permissionless contract methods.
+The frontend or a relay may help a user initiate a request, but it is not trusted: it cannot open a Door, change a rule, add a new event, bypass a human-pass check, mint, or stop a different user from calling the permissionless contract methods.
 
 Do not submit a bare `attestation_hash` from the frontend and treat that hash as proof. A hash is only a commitment. The contract must bind it to an expected request, callback origin, frozen verifier policy, nonce, freshness check, and one-time Door transition.
 
@@ -1026,7 +1036,7 @@ Avoid dashboards that look like a generic DeFi terminal.
 
 Use a “birth certificate” visual language.
 
-Use a live Signal Door visual that feels like a weather/ritual event, not a trading chart.
+Use a live Signal Door visual that feels like an event certificate and public queue, not a trading chart.
 
 ### 11.3 Main routes
 
@@ -1056,7 +1066,7 @@ Problem: “Fair launches are often speed races disguised as equal access.”
 
 How it works: three-step visual for Birth, Signal, Door.
 
-Live demo: Raincheck card with current lifecycle state.
+Live demo: Ship Signal card with current lifecycle state.
 
 Proof: code hash, contract account, TEE WASM hash, and event count.
 
@@ -1170,7 +1180,7 @@ Never document seed phrases.
 
 `auspice.testnet` for the factory.
 
-`rain.auspice.testnet` for the demo coin.
+`ship.auspice-yagnesh.testnet` for the demo coin.
 
 `alice.auspice.testnet` for a participant fixture.
 
@@ -1369,7 +1379,7 @@ Mitigation: contract stores consumed nonce hashes.
 
 Mitigation: pass binds coin, action kind, Door ID, wallet, and expiry.
 
-### 14.5 Threat: stale weather data
+### 14.5 Threat: stale source data
 
 Mitigation: attested output includes fetched time and source-reported time when available.
 
@@ -1447,7 +1457,7 @@ Resource: https://guide.rhea.finance/getting-started/using-the-platform
 
 ### 15.3 Testnet trading demo
 
-If a RHEA testnet flow is stable and documented, seed a tiny testnet RAIN/wNEAR pool.
+If a testnet flow is stable and documented, seed a tiny testnet SHIP/wNEAR pool.
 
 If testnet pool creation becomes fragile, do not make it a required judge step.
 
@@ -1545,7 +1555,7 @@ Success condition: a valid fixture proof opens one Door and unclaimed reserve bu
 
 ### Milestone 5: OutLayer proof
 
-Build the weather-oracle WASM.
+Build the generic event-verifier WASM.
 
 Publish the source and reproducible build path.
 
@@ -1595,11 +1605,11 @@ Say: “Auspice makes a coin’s future supply follow a public real-world rule, 
 
 ### Scene 2: immutable configuration, 10 to 25 seconds
 
-Open the Raincheck coin page.
+Open the Ship Signal coin page.
 
 Show 70% Genesis and 30% Signal Door reserve.
 
-Show the fixed rule: “Rain in Mumbai on Thursday.”
+Show the fixed rule: “A matching GitHub release opens this Door.”
 
 Show code hash, no-admin statement, and testnet badge.
 
@@ -1619,7 +1629,7 @@ Complete the visible testnet pass flow.
 
 Submit allocation request or Door claim.
 
-Show minted RAIN balance.
+Show minted SHIP balance.
 
 ### Scene 5: actual signal proof, 60 to 90 seconds
 
@@ -1687,11 +1697,11 @@ Use steps in this form:
 
 1. Open `[testnet URL]`.
 2. Connect a NEAR testnet wallet.
-3. Open `Raincheck`.
+3. Open `Ship Signal`.
 4. Read the immutable rule in the Rules panel.
 5. Call `get_birth_certificate` or use the UI verification link.
 6. Submit the supplied valid testnet fixture pass.
-7. Observe RAIN balance change from `0` to `[expected amount]`.
+7. Observe SHIP balance change from `0` to `[expected amount]`.
 8. Submit the same pass again.
 9. Observe `PASS_ALREADY_USED` rejection.
 10. Open the attested Signal Door proof.
@@ -1704,7 +1714,7 @@ Do not write “Sybil-proof.”
 
 Do not write “impossible to bot.”
 
-Do not write “weather truth guaranteed.”
+Do not write “source truth guaranteed.”
 
 Do not write “mainnet safe.”
 
@@ -1718,7 +1728,7 @@ Do not write “fairer than every launchpad” without evidence.
 
 ### 19.1 Short submission description
 
-Auspice is a testnet NEP-141 memecoin protocol where supply follows immutable public rules instead of founder discretion. Coins begin with a wallet-bound, human-verified Genesis allocation, then keep part of their supply unminted until an attested real-world Signal Door opens. The NEAR contract verifies the pass/proof, caps allocations, mints eligible balances, and permanently removes unclaimed supply. Our demo coin, RAIN, opens a new human allocation only when an attested weather rule is satisfied.
+Auspice is a testnet NEP-141 fair-launch platform where supply follows immutable public rules instead of founder discretion. Coins begin with a wallet-bound, human-verified Genesis allocation, then keep part of their supply unminted until an attested real-world Signal Door opens. The NEAR contract verifies the pass/proof, caps allocations, mints eligible balances, and permanently removes unclaimed supply. Our proof coin, SHIP, opens a new human allocation only when an attested GitHub-release rule is satisfied.
 
 ### 19.2 How NEAR fits
 
@@ -1752,7 +1762,7 @@ Do not add a secondary track merely to increase coverage.
 
 ### 20.1 What judges should remember
 
-“The weather can mint, but bots cannot.”
+“Reality can release supply, but bots cannot.”
 
 ### 20.2 What not to lead with
 
@@ -1790,7 +1800,7 @@ Make the supply timeline beautiful and legible.
 
 Make the Door feel like a ritual, not an admin form.
 
-Use one visual language consistently: certificate, seal, weather signal, countdown, proof.
+Use one visual language consistently: certificate, seal, signal queue, countdown, proof.
 
 ---
 
@@ -2010,7 +2020,7 @@ If any of these are false near deadline, cut scope rather than fake completeness
 Auspice is done for the hackathon when a judge can:
 
 1. Open the public site.
-2. Read the immutable Raincheck rule.
+2. Read the immutable Ship Signal rule.
 3. Inspect the testnet NEP-141 metadata and supply.
 4. See why a bot-like call fails.
 5. Receive an allocation through a valid wallet-bound pass.

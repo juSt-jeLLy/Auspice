@@ -4,7 +4,7 @@
 
 Auspice is a NEAR testnet protocol for memecoins with an equal-access Genesis allocation and future supply released only through immutable, attested Signal Doors.
 
-It contains the NEAR contracts, Next.js application, testnet deployment scripts, and reproducible build artifacts for the Raincheck (`RAIN`) demonstration coin.
+It contains the NEAR contracts, Next.js application, testnet deployment scripts, and reproducible build artifacts for Auspice permissionless fair launches. The proof launch is Ship Signal (`SHIP`), a GitHub-release Signal Door.
 
 ## Status
 

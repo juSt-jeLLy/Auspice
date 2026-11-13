@@ -19,6 +19,7 @@ use near_sdk::{
 use primitive_types::U256;
 
 type Balance = u128;
+const SIGNAL_REQUEST_TIMEOUT_NS: u64 = 600_000_000_000;
 
 #[derive(BorshSerialize, BorshStorageKey)]
 enum StorageKey {
@@ -28,6 +29,8 @@ enum StorageKey {
     UsedPasses,
     AcceptedProofs,
     SignalRequests,
+    SignalRequestOrder,
+    ActiveDoorRequests,
     GenesisPaid,
     RefundableNear,
     Doors,
@@ -45,17 +48,45 @@ pub enum Lifecycle {
     Finished,
 }
 
+/// A closed, auditable set of source adapters. Adding a source requires a new
+/// verifier release and a new immutable Door; callers can never supply code.
+#[near(serializers = [borsh, json])]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum SignalTemplate {
+    GithubRelease,
+    UsgsEarthquake,
+    SportsScore,
+    PublicAccountPost,
+}
+
+/// Template-specific structured policy. Version one executes GithubRelease;
+/// the other variants are reserved so launch JSON remains explicit rather than
+/// becoming an arbitrary URL/predicate language.
+#[near(serializers = [borsh, json])]
+#[derive(Clone)]
+pub struct SignalPredicate {
+    pub version: u16,
+    pub required_tag: Option<String>,
+    pub minimum_magnitude_x10: Option<u16>,
+    pub expected_winner: Option<String>,
+    pub required_text: Option<String>,
+}
+
 #[near(serializers = [borsh, json])]
 #[derive(Clone)]
 pub struct DoorConfig {
     pub door_id: u16,
+    pub template: SignalTemplate,
     pub source_id: String,
     pub source_url: String,
+    pub predicate: SignalPredicate,
+    pub verifier_wasm_url: String,
+    pub verifier_wasm_hash: Base64VecU8,
+    pub verifier_build_target: String,
     pub reserve: U128,
     pub user_cap: U128,
     pub claim_window_ns: u64,
     pub new_humans_only: bool,
-    pub predicate_version: u16,
 }
 
 #[near(serializers = [borsh, json])]
@@ -69,9 +100,7 @@ pub struct LaunchConfig {
     pub genesis_open_at_ns: u64,
     pub genesis_close_at_ns: u64,
     pub human_pass_public_key: Base64VecU8,
-    pub tee_wasm_hash: Base64VecU8,
     pub outlayer_account_id: AccountId,
-    pub outlayer_project_id: String,
     pub max_signal_age_ns: u64,
     pub no_creator_genesis_allocation: bool,
     pub doors: Vec<DoorConfig>,
@@ -119,7 +148,9 @@ pub struct OutlayerSignalResult {
     pub request_nonce: String,
     pub coin_id: AccountId,
     pub door_id: u16,
+    pub template: SignalTemplate,
     pub source_id: String,
+    pub source_url: String,
     pub predicate_version: u16,
     pub predicate_passed: bool,
     pub fetched_at_ns: u64,
@@ -131,11 +162,19 @@ pub struct OutlayerSignalResult {
 #[near(serializers = [borsh, json])]
 #[derive(Clone)]
 pub struct SignalRequest {
+    pub request_id: u64,
     pub door_id: u16,
     pub nonce: String,
     pub requester_id: AccountId,
     pub requested_at_ns: u64,
+    pub status: SignalRequestStatus,
+    pub completed_at_ns: Option<u64>,
+    pub failure_reason: Option<String>,
 }
+
+#[near(serializers = [borsh, json])]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum SignalRequestStatus { Pending, Verified, Rejected }
 
 #[near(serializers = [json])]
 pub struct GenesisStatus {
@@ -173,8 +212,8 @@ pub struct AuspiceEvent {
 pub struct VerificationBundle {
     pub coin_id: AccountId,
     pub lifecycle: Lifecycle,
-    pub tee_wasm_hash: Base64VecU8,
     pub doors: Vec<SignalDoor>,
+    pub signal_requests: Vec<SignalRequest>,
     pub events: Vec<AuspiceEvent>,
 }
 
@@ -201,6 +240,8 @@ pub struct AuspiceCoin {
     used_passes: LookupMap<String, bool>,
     accepted_proofs: LookupMap<String, bool>,
     signal_requests: LookupMap<u64, SignalRequest>,
+    signal_request_order: Vector<u64>,
+    active_door_requests: LookupMap<u16, u64>,
     doors: Vector<SignalDoor>,
     events: Vector<AuspiceEvent>,
     total_requested: Balance,
@@ -224,10 +265,6 @@ impl AuspiceCoin {
             "AUSPICE[CONFIG] invalid Genesis schedule"
         );
         require!(
-            !config.outlayer_project_id.is_empty(),
-            "AUSPICE[CONFIG] OutLayer project is required"
-        );
-        require!(
             config.max_signal_age_ns > 0,
             "AUSPICE[CONFIG] maximum signal age is required"
         );
@@ -235,10 +272,7 @@ impl AuspiceCoin {
             config.genesis_price_yocto_near_per_token.0 > 0,
             "AUSPICE[CONFIG] Genesis price must be positive"
         );
-        require!(
-            config.human_pass_public_key.0.len() == 32 && config.tee_wasm_hash.0.len() == 32,
-            "AUSPICE[CONFIG] expected 32-byte human-pass key and WASM hash"
-        );
+        require!(config.human_pass_public_key.0.len() == 32, "AUSPICE[CONFIG] expected 32-byte human-pass key");
         metadata.assert_valid();
         let door_total: Balance = config.doors.iter().map(|d| d.reserve.0).sum();
         require!(
@@ -246,10 +280,12 @@ impl AuspiceCoin {
             "AUSPICE[CONFIG] reserves must equal maximum supply"
         );
         for (index, door) in config.doors.iter().enumerate() {
-            require!(
-                door.door_id == index as u16 && door.user_cap.0 > 0 && door.reserve.0 > 0,
-                "AUSPICE[CONFIG] invalid Door configuration"
-            );
+            require!(door.door_id == index as u16 && door.user_cap.0 > 0 && door.reserve.0 > 0 && door.predicate.version > 0, "AUSPICE[CONFIG] invalid Door configuration");
+            require!(door.verifier_wasm_hash.0.len() == 32 && door.verifier_wasm_url.starts_with("https://") && matches!(door.verifier_build_target.as_str(), "wasm32-wasip1" | "wasm32-wasip2"), "AUSPICE[CONFIG] Door must pin a HTTPS WASI verifier");
+            match door.template {
+                SignalTemplate::GithubRelease => require!(door.source_id.starts_with("github_release:") && door.source_url.starts_with("https://api.github.com/repos/"), "AUSPICE[CONFIG] invalid GitHub release source"),
+                _ => env::panic_str("AUSPICE[CONFIG] this Signal template is not enabled yet"),
+            }
         }
         let lifecycle = if env::block_timestamp() < config.genesis_open_at_ns {
             Lifecycle::Draft
@@ -283,6 +319,8 @@ impl AuspiceCoin {
             used_passes: LookupMap::new(StorageKey::UsedPasses),
             accepted_proofs: LookupMap::new(StorageKey::AcceptedProofs),
             signal_requests: LookupMap::new(StorageKey::SignalRequests),
+            signal_request_order: Vector::new(StorageKey::SignalRequestOrder),
+            active_door_requests: LookupMap::new(StorageKey::ActiveDoorRequests),
             doors,
             events: Vector::new(StorageKey::Events),
             total_requested: 0,
@@ -390,17 +428,14 @@ impl AuspiceCoin {
             self.lifecycle == Lifecycle::Live,
             "AUSPICE[DOOR] Genesis is not live"
         );
-        let (source_id, source_url, predicate_version) = {
+        let door_config = {
             let door = self.door(door_id);
             require!(
                 door.status == DoorStatus::Locked,
                 "AUSPICE[DOOR] Door is not available"
             );
-            (
-                door.config.source_id.clone(),
-                door.config.source_url.clone(),
-                door.config.predicate_version,
-            )
+            require!(!self.active_door_requests.contains_key(&door_id), "AUSPICE[DOOR] evaluation already pending");
+            door.config.clone()
         };
         let request_id = self.next_signal_request_id;
         self.next_signal_request_id += 1;
@@ -410,27 +445,33 @@ impl AuspiceCoin {
         self.signal_requests.insert(
             request_id,
             SignalRequest {
+                request_id,
                 door_id,
                 nonce: nonce.clone(),
                 requester_id: env::predecessor_account_id(),
                 requested_at_ns: env::block_timestamp(),
+                status: SignalRequestStatus::Pending,
+                completed_at_ns: None,
+                failure_reason: None,
             },
         );
-        let input = json!({"request_id":request_id,"request_nonce":nonce,"coin_id":env::current_account_id(),"door_id":door_id,"source_id":source_id,"source_url":source_url,"predicate_version":predicate_version}).to_string();
-        Promise::new(self.config.outlayer_account_id.clone()).function_call("request_execution", json!({"source":{"Project":{"project_id":self.config.outlayer_project_id}},"resource_limits":{"max_instructions":1_000_000_000u64,"max_execution_seconds":30u64},"input_data":input,"response_format":"Json","payer_account_id":env::predecessor_account_id()}).to_string().into_bytes(), env::attached_deposit(), Gas::from_tgas(100)).then(Self::ext(env::current_account_id()).with_static_gas(Gas::from_tgas(30)).on_signal_result(request_id))
+        self.signal_request_order.push(request_id);
+        self.active_door_requests.insert(door_id, request_id);
+        self.emit("signal_submitted", Some(door_id), 0);
+        let input = json!({"request_id":request_id,"request_nonce":nonce,"coin_id":env::current_account_id(),"door_id":door_id,"template":door_config.template,"source_id":door_config.source_id,"source_url":door_config.source_url,"predicate":door_config.predicate,"predicate_version":door_config.predicate.version,"expected_wasm_hash":door_config.verifier_wasm_hash}).to_string();
+        // OutLayer's live ABI has seven fields. Keep the unused fields explicit
+        // so an omitted argument can never shift the payer/params position.
+        Promise::new(self.config.outlayer_account_id.clone()).function_call("request_execution", json!({"source":{"WasmUrl":{"url":door_config.verifier_wasm_url,"hash":hex(&door_config.verifier_wasm_hash.0),"build_target":door_config.verifier_build_target}},"resource_limits":{"max_instructions":1_000_000_000u64,"max_execution_seconds":30u64},"input_data":input,"secrets_ref":null,"response_format":"Json","payer_account_id":env::predecessor_account_id(),"params":null}).to_string().into_bytes(), env::attached_deposit(), Gas::from_tgas(200)).then(Self::ext(env::current_account_id()).with_static_gas(Gas::from_tgas(40)).on_signal_result(request_id))
     }
 
     #[private]
     pub fn on_signal_result(&mut self, request_id: u64) {
-        let request = self
-            .signal_requests
-            .remove(&request_id)
-            .unwrap_or_else(|| env::panic_str("AUSPICE[PROOF] unknown request"));
-        let bytes = env::promise_result_checked(0, 16_384)
-            .unwrap_or_else(|_| env::panic_str("AUSPICE[PROOF] OutLayer execution failed"));
-        let result: OutlayerSignalResult = near_sdk::serde_json::from_slice(&bytes)
-            .unwrap_or_else(|_| env::panic_str("AUSPICE[PROOF] invalid OutLayer response"));
-        require!(
+        let mut request = self.signal_requests.get(&request_id).cloned().unwrap_or_else(|| env::panic_str("AUSPICE[PROOF] unknown request"));
+        require!(request.status == SignalRequestStatus::Pending, "AUSPICE[PROOF] request already completed");
+        self.active_door_requests.remove(&request.door_id);
+        let bytes = match env::promise_result_checked(0, 16_384) { Ok(value) => value, Err(_) => return self.reject_signal_request(&mut request, "OutLayer execution failed") };
+        let result: OutlayerSignalResult = match near_sdk::serde_json::from_slice(&bytes) { Ok(value) => value, Err(_) => return self.reject_signal_request(&mut request, "invalid OutLayer response") };
+        let common_valid =
             result.request_id == request_id
                 && result.request_nonce == request.nonce
                 && result.coin_id == env::current_account_id()
@@ -440,21 +481,12 @@ impl AuspiceCoin {
                 && result.fetched_at_ns >= request.requested_at_ns
                 && result.expires_at_ns > env::block_timestamp()
                 && result.fetched_at_ns <= env::block_timestamp()
-                && env::block_timestamp() - result.fetched_at_ns <= self.config.max_signal_age_ns,
-            "AUSPICE[PROOF] response binding mismatch"
-        );
+                && env::block_timestamp() - result.fetched_at_ns <= self.config.max_signal_age_ns;
+        if !common_valid { return self.reject_signal_request(&mut request, "response binding mismatch"); }
         let door = self.door(request.door_id);
-        require!(
-            result.source_id == door.config.source_id
-                && result.predicate_version == door.config.predicate_version
-                && result.wasm_hash.0 == self.config.tee_wasm_hash.0,
-            "AUSPICE[PROOF] immutable policy mismatch"
-        );
+        if !(result.template == door.config.template && result.source_id == door.config.source_id && result.source_url == door.config.source_url && result.predicate_version == door.config.predicate.version && result.wasm_hash.0 == door.config.verifier_wasm_hash.0) { return self.reject_signal_request(&mut request, "immutable policy mismatch"); }
         let proof_key = hex(&env::sha256(&result.response_hash.0));
-        require!(
-            !self.accepted_proofs.contains_key(&proof_key),
-            "AUSPICE[PROOF] proof already used"
-        );
+        if self.accepted_proofs.contains_key(&proof_key) { return self.reject_signal_request(&mut request, "proof already used"); }
         let door = self.door_mut(request.door_id);
         require!(
             door.status == DoorStatus::Locked,
@@ -465,8 +497,28 @@ impl AuspiceCoin {
         door.closes_at_ns = Some(env::block_timestamp() + door.config.claim_window_ns);
         door.proof_hash = Some(Base64VecU8(env::sha256(&result.response_hash.0)));
         self.accepted_proofs.insert(proof_key, true);
+        request.status = SignalRequestStatus::Verified;
+        request.completed_at_ns = Some(env::block_timestamp());
+        self.signal_requests.insert(request_id, request.clone());
         self.lifecycle = Lifecycle::DoorOpen;
         self.emit("door_opened", Some(request.door_id), 0);
+    }
+
+    fn reject_signal_request(&mut self, request: &mut SignalRequest, reason: &str) {
+        request.status = SignalRequestStatus::Rejected;
+        request.completed_at_ns = Some(env::block_timestamp());
+        request.failure_reason = Some(reason.into());
+        self.signal_requests.insert(request.request_id, request.clone());
+        self.emit("signal_rejected", Some(request.door_id), 0);
+    }
+
+    /// A failed external execution must not leave a Door permanently locked.
+    /// Anyone can release the one-request-per-Door lock after the public timeout.
+    pub fn cancel_stale_signal_request(&mut self, request_id: u64) {
+        let mut request = self.signal_requests.get(&request_id).cloned().unwrap_or_else(|| env::panic_str("AUSPICE[PROOF] unknown request"));
+        require!(request.status == SignalRequestStatus::Pending && env::block_timestamp() >= request.requested_at_ns.saturating_add(SIGNAL_REQUEST_TIMEOUT_NS), "AUSPICE[PROOF] request is not stale");
+        self.active_door_requests.remove(&request.door_id);
+        self.reject_signal_request(&mut request, "request timed out");
     }
 
     pub fn claim_signal_door(&mut self, door_id: u16, pass: HumanPass, amount: U128) {
@@ -554,6 +606,14 @@ impl AuspiceCoin {
     pub fn list_doors(&self) -> Vec<SignalDoor> {
         self.doors.iter().cloned().collect()
     }
+    pub fn get_signal_request(&self, request_id: u64) -> Option<SignalRequest> {
+        self.signal_requests.get(&request_id).cloned()
+    }
+    pub fn list_signal_requests(&self, from_index: Option<u32>, limit: Option<u32>) -> Vec<SignalRequest> {
+        let from = from_index.unwrap_or(0) as usize;
+        let limit = limit.unwrap_or(50).min(100) as usize;
+        self.signal_request_order.iter().skip(from).take(limit).filter_map(|id| self.signal_requests.get(id).cloned()).collect()
+    }
     pub fn get_birth_certificate(&self) -> BirthCertificate {
         BirthCertificate {
             factory_id: self.factory_id.clone(),
@@ -591,8 +651,8 @@ impl AuspiceCoin {
         VerificationBundle {
             coin_id: env::current_account_id(),
             lifecycle: self.lifecycle,
-            tee_wasm_hash: self.config.tee_wasm_hash.clone(),
             doors: self.list_doors(),
+            signal_requests: self.list_signal_requests(Some(0), Some(100)),
             events: self.events(Some(256)),
         }
     }
@@ -821,7 +881,7 @@ mod tests {
     }
     fn context(predecessor: &str, timestamp: u64, deposit: NearToken) {
         let mut builder = VMContextBuilder::new();
-        builder.current_account_id(account("rain.auspice.testnet"));
+        builder.current_account_id(account("ship.auspice.testnet"));
         builder.signer_account_id(account(predecessor));
         builder.predecessor_account_id(account(predecessor));
         builder.block_timestamp(timestamp);
@@ -830,9 +890,9 @@ mod tests {
     }
     fn callback_context(timestamp: u64, result: PromiseResult) {
         let mut builder = VMContextBuilder::new();
-        builder.current_account_id(account("rain.auspice.testnet"));
-        builder.signer_account_id(account("rain.auspice.testnet"));
-        builder.predecessor_account_id(account("rain.auspice.testnet"));
+        builder.current_account_id(account("ship.auspice.testnet"));
+        builder.signer_account_id(account("ship.auspice.testnet"));
+        builder.predecessor_account_id(account("ship.auspice.testnet"));
         builder.block_timestamp(timestamp);
         testing_env!(
             builder.build(),
@@ -848,8 +908,8 @@ mod tests {
             account("auspice.testnet"),
             FungibleTokenMetadata {
                 spec: "ft-1.0.0".into(),
-                name: "Raincheck".into(),
-                symbol: "RAIN".into(),
+                name: "Ship Signal".into(),
+                symbol: "SHIP".into(),
                 icon: None,
                 reference: None,
                 reference_hash: None,
@@ -869,9 +929,7 @@ mod tests {
                         .to_bytes()
                         .to_vec(),
                 ),
-                tee_wasm_hash: Base64VecU8(vec![0; 32]),
                 outlayer_account_id: account("outlayer.testnet"),
-                outlayer_project_id: "auspice.testnet/weather-oracle".into(),
                 max_signal_age_ns: 60,
                 no_creator_genesis_allocation: true,
                 doors: vec![],
@@ -888,13 +946,13 @@ mod tests {
         let nonce = format!("a-unique-test-nonce-{who}");
         let expires_at_ns = 190;
         let message = format!(
-            "auspice:v1:genesis:rain.auspice.testnet::{}:{}:{}:{}",
+            "auspice:v1:genesis:ship.auspice.testnet::{}:{}:{}:{}",
             who, nonce, expires_at_ns, amount
         );
         let signature = SigningKey::from_bytes(&[7; 32]).sign(message.as_bytes());
         HumanPass {
             kind: "genesis".into(),
-            coin_id: account("rain.auspice.testnet"),
+            coin_id: account("ship.auspice.testnet"),
             door_id: None,
             account_id: account(who),
             nonce,
@@ -908,12 +966,12 @@ mod tests {
         let nonce = format!("a-unique-door-pass-{who}-{door_id}");
         let expires_at_ns = 280;
         let message = format!(
-            "auspice:v1:signal_door:rain.auspice.testnet:{door_id}:{who}:{nonce}:{expires_at_ns}:{amount}"
+            "auspice:v1:signal_door:ship.auspice.testnet:{door_id}:{who}:{nonce}:{expires_at_ns}:{amount}"
         );
         let signature = SigningKey::from_bytes(&[7; 32]).sign(message.as_bytes());
         HumanPass {
             kind: "signal_door".into(),
-            coin_id: account("rain.auspice.testnet"),
+            coin_id: account("ship.auspice.testnet"),
             door_id: Some(door_id),
             account_id: account(who),
             nonce,
@@ -926,7 +984,7 @@ mod tests {
     #[test]
     fn exposes_nep148_metadata_and_nep145_storage() {
         let mut token = coin(150);
-        assert_eq!(token.ft_metadata().symbol, "RAIN");
+        assert_eq!(token.ft_metadata().symbol, "SHIP");
         register(&mut token, "alice.testnet");
         assert!(token.storage_balance_of(account("alice.testnet")).is_some());
     }
@@ -1010,13 +1068,17 @@ mod tests {
         token.config.genesis_reserve = U128(100);
         token.config.doors = vec![DoorConfig {
             door_id: 0,
-            source_id: "open_meteo_mumbai".into(),
-            source_url: "https://api.open-meteo.com/v1/forecast".into(),
+            template: SignalTemplate::GithubRelease,
+            source_id: "github_release:auspice/ship-signal".into(),
+            source_url: "https://api.github.com/repos/auspice/ship-signal/releases/latest".into(),
+            predicate: SignalPredicate { version: 1, required_tag: Some("v1.0.0".into()), minimum_magnitude_x10: None, expected_winner: None, required_text: None },
+            verifier_wasm_url: "https://fastfs.outlayer.ai/auspice-verifier.wasm".into(),
+            verifier_wasm_hash: Base64VecU8(vec![0; 32]),
+            verifier_build_target: "wasm32-wasip2".into(),
             reserve: U128(50),
             user_cap: U128(10),
             claim_window_ns: 20,
             new_humans_only: true,
-            predicate_version: 1,
         }];
         token.doors.push(SignalDoor {
             config: token.config.doors[0].clone(),
@@ -1036,10 +1098,14 @@ mod tests {
         token.signal_requests.insert(
             request_id,
             SignalRequest {
+                request_id,
                 door_id: 0,
                 nonce: "request-nonce".into(),
                 requester_id: account("alice.testnet"),
                 requested_at_ns: 250,
+                status: SignalRequestStatus::Pending,
+                completed_at_ns: None,
+                failure_reason: None,
             },
         );
         request_id
@@ -1051,7 +1117,9 @@ mod tests {
             request_nonce: "request-nonce".into(),
             coin_id: account(coin_id),
             door_id: 0,
-            source_id: "open_meteo_mumbai".into(),
+            template: SignalTemplate::GithubRelease,
+            source_id: "github_release:auspice/ship-signal".into(),
+            source_url: "https://api.github.com/repos/auspice/ship-signal/releases/latest".into(),
             predicate_version: 1,
             predicate_passed: true,
             fetched_at_ns,
@@ -1066,7 +1134,7 @@ mod tests {
         let mut token = coin_with_door(250);
         let request_id = pending_signal_request(&mut token);
         let result =
-            near_sdk::serde_json::to_vec(&signal_result("rain.auspice.testnet", 280)).unwrap();
+            near_sdk::serde_json::to_vec(&signal_result("ship.auspice.testnet", 280)).unwrap();
         callback_context(300, PromiseResult::Successful(result));
         token.on_signal_result(request_id);
         assert_eq!(token.get_door(0).status, DoorStatus::Open);
@@ -1075,30 +1143,43 @@ mod tests {
     }
 
     #[test]
-    fn rejects_stale_or_cross_coin_outlayer_results() {
+    fn rejects_stale_or_cross_coin_outlayer_results_without_bricking_the_door() {
         let mut stale = coin_with_door(250);
         pending_signal_request(&mut stale);
         let stale_result =
-            near_sdk::serde_json::to_vec(&signal_result("rain.auspice.testnet", 200)).unwrap();
+            near_sdk::serde_json::to_vec(&signal_result("ship.auspice.testnet", 200)).unwrap();
         callback_context(300, PromiseResult::Successful(stale_result));
-        assert!(catch_unwind(AssertUnwindSafe(|| stale.on_signal_result(0))).is_err());
+        stale.on_signal_result(0);
+        assert_eq!(stale.get_signal_request(0).unwrap().status, SignalRequestStatus::Rejected);
 
         let mut wrong_coin = coin_with_door(250);
         pending_signal_request(&mut wrong_coin);
         let wrong_result =
             near_sdk::serde_json::to_vec(&signal_result("other.testnet", 280)).unwrap();
         callback_context(300, PromiseResult::Successful(wrong_result));
-        assert!(catch_unwind(AssertUnwindSafe(|| wrong_coin.on_signal_result(0))).is_err());
+        wrong_coin.on_signal_result(0);
+        assert_eq!(wrong_coin.get_signal_request(0).unwrap().status, SignalRequestStatus::Rejected);
 
         let mut missing_hash = coin_with_door(250);
         pending_signal_request(&mut missing_hash);
-        let mut result = signal_result("rain.auspice.testnet", 280);
+        let mut result = signal_result("ship.auspice.testnet", 280);
         result.response_hash = Base64VecU8(vec![]);
         callback_context(
             300,
             PromiseResult::Successful(near_sdk::serde_json::to_vec(&result).unwrap()),
         );
-        assert!(catch_unwind(AssertUnwindSafe(|| missing_hash.on_signal_result(0))).is_err());
+        missing_hash.on_signal_result(0);
+        assert_eq!(missing_hash.get_signal_request(0).unwrap().status, SignalRequestStatus::Rejected);
+    }
+
+    #[test]
+    fn releases_a_stuck_signal_request_after_the_public_timeout() {
+        let mut token = coin_with_door(250);
+        pending_signal_request(&mut token);
+        context("watcher.testnet", 250 + SIGNAL_REQUEST_TIMEOUT_NS, NearToken::from_yoctonear(0));
+        token.cancel_stale_signal_request(0);
+        assert_eq!(token.get_signal_request(0).unwrap().status, SignalRequestStatus::Rejected);
+        assert!(!token.active_door_requests.contains_key(&0));
     }
 
     #[test]
@@ -1136,7 +1217,7 @@ mod tests {
 
         pending_signal_request(&mut token);
         let result =
-            near_sdk::serde_json::to_vec(&signal_result("rain.auspice.testnet", 250)).unwrap();
+            near_sdk::serde_json::to_vec(&signal_result("ship.auspice.testnet", 250)).unwrap();
         callback_context(260, PromiseResult::Successful(result));
         token.on_signal_result(0);
         let pass = door_pass("carol.testnet", 0, 10);
