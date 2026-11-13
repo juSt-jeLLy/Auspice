@@ -763,7 +763,7 @@ Coin public change methods:
 - `settle_genesis()`;
 - `finalize_genesis()`;
 - `withdraw_refund()`;
-- `open_signal_door(door_id, signal_proof)`;
+- `request_signal_check(door_id)`;
 - `claim_signal_door(door_id, human_pass)`;
 - `close_signal_door(door_id)`;
 - `ft_transfer(receiver_id, amount, memo)`;
@@ -805,6 +805,7 @@ Genesis settlement behavior:
 - `emit_auspice_event(event)`;
 - `compute_genesis_allocation(account_id)`;
 - `assert_no_privileged_mint_caller()`.
+- `on_signal_result(request_id, result)`; private callback only; it rejects every caller except the immutable OutLayer callback path.
 
 ### 9.9 Invariants
 
@@ -971,7 +972,26 @@ Never claim an unsigned response is attested.
 - Record the accepted output hash on-chain.
 - Show the full verification bundle in the frontend.
 
-### 10.9 On-chain event history
+### 10.9 Contract-enforced OutLayer flow (no trusted backend)
+
+The TEE is external compute, but it must never be the authority that changes token supply. The same `auspice_coin` NEP-141 contract that owns balances and mint logic also owns the full Signal Door state machine.
+
+1. **Immutable launch configuration.** At initialization, the contract stores the accepted OutLayer callback account/path, expected signal-verifier WASM hash, fixed source and predicate, Door caps/durations, and the public key or policy identifier used for human passes. These fields have no admin update method.
+2. **Permissionless request.** Any wallet calls `request_signal_check(door_id)`. The contract rejects an already open/closed Door, creates a unique `request_id` and nonce in state, and requests the configured OutLayer testnet execution for the hash-pinned WASM.
+3. **Attested execution.** OutLayer runs the pinned verifier WASM in its TEE. The program fetches/parses the fixed source and returns canonical output containing `request_id`, nonce, Door ID, source/result hashes, fetch time, predicate result, and verifier WASM hash.
+4. **Authenticated callback.** The asynchronous `on_signal_result(request_id, result)` callback is private. It accepts only the configured OutLayer callback route and only an outstanding request created by this coin contract. A browser, creator, relayer, or arbitrary wallet cannot call it successfully.
+5. **On-chain validation.** Before opening a Door, the contract matches the response against its own immutable state: request ID and nonce, Door ID, expected WASM hash, expected source/predicate version, freshness deadline, successful predicate, and one-time Door status. It records the accepted output/proof hash for inspection.
+6. **Only the contract opens the Door.** On passing every check, the contract changes the Door from `Locked` to `Open`; it does not mint a discretionary creator allocation.
+7. **Only the contract mints.** A claimant calls `claim_signal_door` with a fresh wallet-bound human pass. The contract verifies the configured signature/policy, coin/Door/account binding, expiry, cap, and unused nonce. Only then does its custom mint logic credit NEP-141 balance.
+8. **Permissionless close/burn.** After the immutable deadline, anyone may call `close_signal_door`. The contract marks any unused Door reserve permanently unmintable and records a burn event.
+
+The frontend or a relay may help a user initiate a request, but it is not trusted: it cannot open a Door, change a rule, bypass a human-pass check, mint, or stop a different user from calling the permissionless contract methods.
+
+Do not submit a bare `attestation_hash` from the frontend and treat that hash as proof. A hash is only a commitment. The contract must bind it to an expected request, callback origin, frozen verifier policy, nonce, freshness check, and one-time Door transition.
+
+Per-call Intel TDX quote verification is not the intended on-chain path because it is prohibitively expensive. The contract relies on the configured OutLayer integration/callback for settlement and saves the resulting hashes/identifiers; the UI exposes the full attestation so judges and users can independently verify the TDX evidence.
+
+### 10.10 On-chain event history
 
 The coin keeps an append-only on-chain event list for Genesis requests and settlement, Genesis finalization, Door opening, Door claims, and Door closure/burn. It emits a matching `EVENT_JSON` log for each recorded event. The `get_verification_bundle` view returns the configured TEE identifiers, Door states, and recent event history for independent inspection.
 

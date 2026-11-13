@@ -11,8 +11,11 @@ use near_contract_standards::storage_management::{
 };
 use near_sdk::borsh::BorshSerialize;
 use near_sdk::json_types::{Base64VecU8, U128};
+use near_sdk::serde_json::json;
 use near_sdk::store::{LookupMap, Vector};
-use near_sdk::{env, near, require, AccountId, BorshStorageKey, PanicOnDefault, PromiseOrValue};
+use near_sdk::{
+    env, near, require, AccountId, BorshStorageKey, Gas, PanicOnDefault, Promise, PromiseOrValue,
+};
 use primitive_types::U256;
 
 type Balance = u128;
@@ -24,6 +27,7 @@ enum StorageKey {
     GenesisClaimed,
     UsedPasses,
     AcceptedProofs,
+    SignalRequests,
     GenesisPaid,
     RefundableNear,
     Doors,
@@ -51,6 +55,7 @@ pub struct DoorConfig {
     pub user_cap: U128,
     pub claim_window_ns: u64,
     pub new_humans_only: bool,
+    pub predicate_version: u16,
 }
 
 #[near(serializers = [borsh, json])]
@@ -66,6 +71,8 @@ pub struct LaunchConfig {
     pub human_pass_public_key: Base64VecU8,
     pub signal_public_key: Base64VecU8,
     pub tee_wasm_hash: Base64VecU8,
+    pub outlayer_account_id: AccountId,
+    pub outlayer_project_id: String,
     pub doors: Vec<DoorConfig>,
     pub version: u16,
 }
@@ -106,6 +113,21 @@ pub struct HumanPass {
 
 #[near(serializers = [borsh, json])]
 #[derive(Clone)]
+pub struct OutlayerSignalResult {
+    pub request_id: u64,
+    pub request_nonce: String,
+    pub door_id: u16,
+    pub source_id: String,
+    pub predicate_version: u16,
+    pub predicate_passed: bool,
+    pub fetched_at_ns: u64,
+    pub expires_at_ns: u64,
+    pub wasm_hash: Base64VecU8,
+    pub response_hash: Base64VecU8,
+}
+
+#[near(serializers = [borsh, json])]
+#[derive(Clone)]
 pub struct SignalProof {
     pub coin_id: AccountId,
     pub door_id: u16,
@@ -115,6 +137,15 @@ pub struct SignalProof {
     pub wasm_hash: Base64VecU8,
     pub response_hash: Base64VecU8,
     pub signature: Base64VecU8,
+}
+
+#[near(serializers = [borsh, json])]
+#[derive(Clone)]
+pub struct SignalRequest {
+    pub door_id: u16,
+    pub nonce: String,
+    pub requester_id: AccountId,
+    pub requested_at_ns: u64,
 }
 
 #[near(serializers = [json])]
@@ -173,12 +204,14 @@ pub struct AuspiceCoin {
     refundable_near: LookupMap<AccountId, Balance>,
     used_passes: LookupMap<String, bool>,
     accepted_proofs: LookupMap<String, bool>,
+    signal_requests: LookupMap<u64, SignalRequest>,
     doors: Vector<SignalDoor>,
     events: Vector<AuspiceEvent>,
     total_requested: Balance,
     minted_supply: Balance,
     permanently_unmintable: Balance,
     event_count: u64,
+    next_signal_request_id: u64,
 }
 
 #[near]
@@ -193,6 +226,10 @@ impl AuspiceCoin {
         require!(
             config.genesis_open_at_ns < config.genesis_close_at_ns,
             "AUSPICE[CONFIG] invalid Genesis schedule"
+        );
+        require!(
+            !config.outlayer_project_id.is_empty(),
+            "AUSPICE[CONFIG] OutLayer project is required"
         );
         require!(
             config.genesis_price_yocto_near_per_token.0 > 0,
@@ -247,12 +284,14 @@ impl AuspiceCoin {
             refundable_near: LookupMap::new(StorageKey::RefundableNear),
             used_passes: LookupMap::new(StorageKey::UsedPasses),
             accepted_proofs: LookupMap::new(StorageKey::AcceptedProofs),
+            signal_requests: LookupMap::new(StorageKey::SignalRequests),
             doors,
             events: Vector::new(StorageKey::Events),
             total_requested: 0,
             minted_supply: 0,
             permanently_unmintable: 0,
             event_count: 0,
+            next_signal_request_id: 0,
         }
     }
 
@@ -343,6 +382,88 @@ impl AuspiceCoin {
         self.emit("genesis_finalized", None, 0);
     }
 
+    #[payable]
+    pub fn request_signal_check(&mut self, door_id: u16) -> Promise {
+        require!(
+            self.lifecycle == Lifecycle::Live,
+            "AUSPICE[DOOR] Genesis is not live"
+        );
+        let (source_id, source_url, predicate_version) = {
+            let door = self.door(door_id);
+            require!(
+                door.status == DoorStatus::Locked,
+                "AUSPICE[DOOR] Door is not available"
+            );
+            (
+                door.config.source_id.clone(),
+                door.config.source_url.clone(),
+                door.config.predicate_version,
+            )
+        };
+        let request_id = self.next_signal_request_id;
+        self.next_signal_request_id += 1;
+        let nonce = hex(&env::sha256(
+            format!("{}:{}", env::current_account_id(), request_id).as_bytes(),
+        ));
+        self.signal_requests.insert(
+            request_id,
+            SignalRequest {
+                door_id,
+                nonce: nonce.clone(),
+                requester_id: env::predecessor_account_id(),
+                requested_at_ns: env::block_timestamp(),
+            },
+        );
+        let input = json!({"request_id":request_id,"request_nonce":nonce,"coin_id":env::current_account_id(),"door_id":door_id,"source_id":source_id,"source_url":source_url,"predicate_version":predicate_version}).to_string();
+        Promise::new(self.config.outlayer_account_id.clone()).function_call("request_execution", json!({"source":{"Project":{"project_id":self.config.outlayer_project_id}},"resource_limits":{"max_instructions":1_000_000_000u64,"max_execution_seconds":30u64},"input_data":input,"response_format":"Json","payer_account_id":env::predecessor_account_id()}).to_string().into_bytes(), env::attached_deposit(), Gas::from_tgas(100)).then(Self::ext(env::current_account_id()).with_static_gas(Gas::from_tgas(30)).on_signal_result(request_id))
+    }
+
+    #[private]
+    pub fn on_signal_result(&mut self, request_id: u64) {
+        let request = self
+            .signal_requests
+            .remove(&request_id)
+            .unwrap_or_else(|| env::panic_str("AUSPICE[PROOF] unknown request"));
+        let bytes = env::promise_result_checked(0, 16_384)
+            .unwrap_or_else(|_| env::panic_str("AUSPICE[PROOF] OutLayer execution failed"));
+        let result: OutlayerSignalResult = near_sdk::serde_json::from_slice(&bytes)
+            .unwrap_or_else(|_| env::panic_str("AUSPICE[PROOF] invalid OutLayer response"));
+        require!(
+            result.request_id == request_id
+                && result.request_nonce == request.nonce
+                && result.door_id == request.door_id
+                && result.predicate_passed
+                && result.expires_at_ns > env::block_timestamp()
+                && result.fetched_at_ns <= env::block_timestamp(),
+            "AUSPICE[PROOF] response binding mismatch"
+        );
+        let door = self.door(request.door_id);
+        require!(
+            result.source_id == door.config.source_id
+                && result.predicate_version == door.config.predicate_version
+                && result.wasm_hash.0 == self.config.tee_wasm_hash.0,
+            "AUSPICE[PROOF] immutable policy mismatch"
+        );
+        let proof_key = hex(&env::sha256(&result.response_hash.0));
+        require!(
+            !self.accepted_proofs.contains_key(&proof_key),
+            "AUSPICE[PROOF] proof already used"
+        );
+        let door = self.door_mut(request.door_id);
+        require!(
+            door.status == DoorStatus::Locked,
+            "AUSPICE[DOOR] Door already opened"
+        );
+        door.status = DoorStatus::Open;
+        door.opened_at_ns = Some(env::block_timestamp());
+        door.closes_at_ns = Some(env::block_timestamp() + door.config.claim_window_ns);
+        door.proof_hash = Some(Base64VecU8(env::sha256(&result.response_hash.0)));
+        self.accepted_proofs.insert(proof_key, true);
+        self.lifecycle = Lifecycle::DoorOpen;
+        self.emit("door_opened", Some(request.door_id), 0);
+    }
+
+    #[private]
     pub fn open_signal_door(&mut self, door_id: u16, proof: SignalProof) {
         require!(
             self.lifecycle == Lifecycle::Live,
@@ -775,6 +896,8 @@ mod tests {
                         .to_vec(),
                 ),
                 tee_wasm_hash: Base64VecU8(vec![0; 32]),
+                outlayer_account_id: account("outlayer.testnet"),
+                outlayer_project_id: "auspice.testnet/weather-oracle".into(),
                 doors: vec![],
                 version: 1,
             },
