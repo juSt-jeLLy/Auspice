@@ -10,11 +10,11 @@ export default function CreatePage() {
   const { accountId, call } = useWallet();
   const [name, setName] = useState("Ship Signal");
   const [symbol, setSymbol] = useState("SHIP");
-  const [repository, setRepository] = useState("owner/repository");
-  const [requiredTag, setRequiredTag] = useState("v1.0.0");
-  const [humanPassKey, setHumanPassKey] = useState("");
-  const [wasmUrl, setWasmUrl] = useState("");
-  const [wasmHash, setWasmHash] = useState("");
+  const [repository, setRepository] = useState(process.env.NEXT_PUBLIC_DEMO_GITHUB_REPOSITORY ?? "juSt-jeLLy/Auspice");
+  const [requiredTag, setRequiredTag] = useState(process.env.NEXT_PUBLIC_DEMO_REQUIRED_TAG ?? "v1.0.0");
+  const [humanPassKey, setHumanPassKey] = useState(process.env.NEXT_PUBLIC_HUMAN_PASS_PUBLIC_KEY ?? "");
+  const [wasmUrl, setWasmUrl] = useState(process.env.NEXT_PUBLIC_VERIFIER_WASM_URL ?? "");
+  const [wasmHash, setWasmHash] = useState(process.env.NEXT_PUBLIC_VERIFIER_WASM_HASH ?? "");
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 

@@ -2,11 +2,12 @@ import { createHash, createHmac, createPrivateKey, randomUUID, sign, timingSafeE
 import { PublicKey } from "@near-js/crypto";
 import { NextResponse } from "next/server";
 import { rpcUrl } from "@/lib/near";
+import { challengeSecret, signingPem } from "@/lib/human-pass-config";
 
 export const runtime = "nodejs";
 type Challenge = { v: number; coinId: string; accountId: string; doorId: number | null; nonce: string; expiresAtNs: string; recipient: string };
 type Signed = { accountId: string; publicKey: string; signature: string };
-function secret() { const value = process.env.HUMAN_PASS_CHALLENGE_SECRET; if (!value) throw new Error("Human-pass challenge secret is not configured."); return value; }
+function secret() { return challengeSecret(); }
 function open(value: string): Challenge {
   const [body, mac] = value.split("."); if (!body || !mac) throw new Error("Malformed challenge.");
   const expected = createHmac("sha256", secret()).update(body).digest("base64url");
@@ -33,7 +34,7 @@ export async function POST(request: Request) {
     const message = `Auspice human-pass request\ncoin=${challenge.coinId}\naccount=${challenge.accountId}\ndoor=${challenge.doorId ?? "genesis"}\nnonce=${challenge.nonce}\nexpires_at_ns=${challenge.expiresAtNs}`;
     if (!(await fullAccessKey(signed.accountId, signed.publicKey))) throw new Error("Signing key is not a current full-access key.");
     if (!PublicKey.from(signed.publicKey).verify(nep413Hash(message, challenge.nonce, challenge.recipient), Buffer.from(signed.signature, "base64"))) throw new Error("Invalid NEP-413 signature.");
-    const privatePem = process.env.HUMAN_PASS_SIGNING_KEY_PEM;
+    const privatePem = signingPem();
     const maxAllocation = process.env.HUMAN_PASS_MAX_ALLOCATION;
     if (!privatePem || !maxAllocation) throw new Error("Human-pass signer is not configured.");
     const passNonce = `hp-${challenge.nonce.replace(/[^a-zA-Z0-9]/g, "").slice(0, 40)}`;

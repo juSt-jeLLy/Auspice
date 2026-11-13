@@ -1,10 +1,11 @@
 import { createHmac, randomBytes } from "node:crypto";
 import { NextResponse } from "next/server";
+import { challengeSecret } from "@/lib/human-pass-config";
 
 export const runtime = "nodejs";
 type Input = { coinId?: string; accountId?: string; doorId?: number | null };
 
-function secret() { const value = process.env.HUMAN_PASS_CHALLENGE_SECRET; if (!value) throw new Error("Human-pass challenge secret is not configured."); return value; }
+function secret() { return challengeSecret(); }
 function recipient() { return new URL(process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000").host; }
 function seal(payload: object) { const body = Buffer.from(JSON.stringify(payload)).toString("base64url"); const mac = createHmac("sha256", secret()).update(body).digest("base64url"); return `${body}.${mac}`; }
 
