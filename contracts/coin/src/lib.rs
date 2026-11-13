@@ -35,6 +35,8 @@ enum StorageKey {
     RefundableNear,
     Doors,
     Events,
+    HumanRequests,
+    HumanApprovals,
 }
 
 #[near(serializers = [borsh, json])]
@@ -100,11 +102,28 @@ pub struct LaunchConfig {
     pub genesis_open_at_ns: u64,
     pub genesis_close_at_ns: u64,
     pub human_pass_public_key: Base64VecU8,
+    /// V2 launches pin the confidential CAPTCHA verifier alongside their
+    /// event verifier. `None` keeps the already-deployed V1/testnet flow.
+    pub human_verifier: Option<HumanVerifierConfig>,
     pub outlayer_account_id: AccountId,
     pub max_signal_age_ns: u64,
     pub no_creator_genesis_allocation: bool,
     pub doors: Vec<DoorConfig>,
     pub version: u16,
+}
+
+#[near(serializers = [borsh, json])]
+#[derive(Clone)]
+pub struct HumanVerifierConfig {
+    pub wasm_url: String,
+    pub wasm_hash: Base64VecU8,
+    pub wasm_build_target: String,
+    pub secrets_profile: String,
+    pub secrets_account_id: AccountId,
+    pub expected_hostname: String,
+    pub genesis_action: String,
+    pub signal_action: String,
+    pub approval_lifetime_ns: u64,
 }
 
 #[near(serializers = [borsh, json])]
@@ -139,6 +158,49 @@ pub struct HumanPass {
     pub expires_at_ns: u64,
     pub max_allocation: U128,
     pub signature: Base64VecU8,
+}
+
+#[near(serializers = [borsh, json])]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum HumanCheckStatus { Pending, Approved, Rejected }
+
+#[near(serializers = [borsh, json])]
+#[derive(Clone)]
+pub struct HumanCheckRequest {
+    pub request_id: u64,
+    pub requester_id: AccountId,
+    pub kind: String,
+    pub door_id: Option<u16>,
+    pub nonce: String,
+    pub status: HumanCheckStatus,
+    pub requested_at_ns: u64,
+}
+
+#[near(serializers = [borsh, json])]
+#[derive(Clone)]
+pub struct HumanApproval {
+    pub request_id: u64,
+    pub kind: String,
+    pub door_id: Option<u16>,
+    pub nonce: String,
+    pub expires_at_ns: u64,
+    pub max_allocation: U128,
+}
+
+#[near(serializers = [borsh, json])]
+#[derive(Clone)]
+pub struct OutlayerHumanResult {
+    pub request_id: u64,
+    pub request_nonce: String,
+    pub coin_id: AccountId,
+    pub account_id: AccountId,
+    pub kind: String,
+    pub door_id: Option<u16>,
+    pub approved: bool,
+    pub expires_at_ns: u64,
+    pub max_allocation: U128,
+    pub wasm_hash: String,
+    pub captcha_token_hash: String,
 }
 
 #[near(serializers = [borsh, json])]
@@ -244,11 +306,14 @@ pub struct AuspiceCoin {
     active_door_requests: LookupMap<u16, u64>,
     doors: Vector<SignalDoor>,
     events: Vector<AuspiceEvent>,
+    human_requests: LookupMap<u64, HumanCheckRequest>,
+    human_approvals: LookupMap<AccountId, HumanApproval>,
     total_requested: Balance,
     minted_supply: Balance,
     permanently_unmintable: Balance,
     event_count: u64,
     next_signal_request_id: u64,
+    next_human_request_id: u64,
 }
 
 #[near]
@@ -273,6 +338,10 @@ impl AuspiceCoin {
             "AUSPICE[CONFIG] Genesis price must be positive"
         );
         require!(config.human_pass_public_key.0.len() == 32, "AUSPICE[CONFIG] expected 32-byte human-pass key");
+        if let Some(verifier) = &config.human_verifier {
+            require!(verifier.wasm_hash.0.len() == 32 && verifier.wasm_url.starts_with("https://") && verifier.wasm_build_target == "wasm32-wasip2", "AUSPICE[CONFIG] human verifier must pin a HTTPS WASI P2 build");
+            require!(!verifier.secrets_profile.is_empty() && !verifier.expected_hostname.is_empty() && !verifier.genesis_action.is_empty() && !verifier.signal_action.is_empty() && verifier.approval_lifetime_ns > 0, "AUSPICE[CONFIG] invalid human verifier policy");
+        }
         metadata.assert_valid();
         let door_total: Balance = config.doors.iter().map(|d| d.reserve.0).sum();
         require!(
@@ -323,11 +392,14 @@ impl AuspiceCoin {
             active_door_requests: LookupMap::new(StorageKey::ActiveDoorRequests),
             doors,
             events: Vector::new(StorageKey::Events),
+            human_requests: LookupMap::new(StorageKey::HumanRequests),
+            human_approvals: LookupMap::new(StorageKey::HumanApprovals),
             total_requested: 0,
             minted_supply: 0,
             permanently_unmintable: 0,
             event_count: 0,
             next_signal_request_id: 0,
+            next_human_request_id: 0,
         }
     }
 
@@ -374,6 +446,32 @@ impl AuspiceCoin {
         }
         self.total_requested += requested_amount.0;
         self.consume(pass.nonce);
+        self.emit("genesis_request", None, requested_amount.0);
+    }
+
+    /// V2 allocation path. The approval can only have been written by
+    /// `on_human_check_result`, which is a private OutLayer promise callback.
+    #[payable]
+    pub fn request_genesis_allocation_v2(&mut self, requested_amount: U128) {
+        self.refresh_lifecycle();
+        require!(self.config.human_verifier.is_some() && self.lifecycle == Lifecycle::GenesisOpen, "AUSPICE[GENESIS] Genesis is not open for V2 allocation");
+        require!(requested_amount.0 > 0 && requested_amount.0 <= self.config.genesis_user_cap.0, "AUSPICE[GENESIS] allocation exceeds cap");
+        let account = env::predecessor_account_id();
+        let approval = self.human_approvals.get(&account).cloned().unwrap_or_else(|| env::panic_str("AUSPICE[HUMAN] complete the TEE human check first"));
+        require!(approval.kind == "genesis" && approval.door_id.is_none() && approval.expires_at_ns > env::block_timestamp() && requested_amount.0 <= approval.max_allocation.0, "AUSPICE[HUMAN] approval is invalid or expired");
+        require!(!self.config.no_creator_genesis_allocation || account != self.config.creator_id, "AUSPICE[GENESIS] creator allocation is disabled");
+        require!(self.token.accounts.contains_key(&account), "AUSPICE[STORAGE] register token storage first");
+        let prior = self.genesis_requests.get(&account).copied().unwrap_or(0);
+        require!(prior + requested_amount.0 <= self.config.genesis_user_cap.0, "AUSPICE[GENESIS] cumulative cap exceeded");
+        let attached = env::attached_deposit().as_yoctonear();
+        let required = self.price_for(requested_amount.0);
+        require!(attached >= required, "AUSPICE[GENESIS] attached NEAR is below the fixed allocation price");
+        self.genesis_requests.insert(account.clone(), prior + requested_amount.0);
+        let paid = self.genesis_paid.get(&account).copied().unwrap_or(0);
+        self.genesis_paid.insert(account.clone(), paid + required);
+        if attached > required { self.credit_refund(&account, attached - required); }
+        self.total_requested += requested_amount.0;
+        self.human_approvals.remove(&account);
         self.emit("genesis_request", None, requested_amount.0);
     }
 
@@ -463,6 +561,42 @@ impl AuspiceCoin {
         // so an omitted argument can never shift the payer/params position.
         Promise::new(self.config.outlayer_account_id.clone()).function_call("request_execution", json!({"source":{"WasmUrl":{"url":door_config.verifier_wasm_url,"hash":hex(&door_config.verifier_wasm_hash.0),"build_target":door_config.verifier_build_target}},"resource_limits":{"max_instructions":1_000_000_000u64,"max_execution_seconds":30u64},"input_data":input,"secrets_ref":null,"response_format":"Json","payer_account_id":env::predecessor_account_id(),"params":null}).to_string().into_bytes(), env::attached_deposit(), Gas::from_tgas(200)).then(Self::ext(env::current_account_id()).with_static_gas(Gas::from_tgas(40)).on_signal_result(request_id))
     }
+
+    /// V2: the CAPTCHA token is evaluated only by the configured pinned WASM
+    /// with its protected OutLayer secret. This method records no allocation.
+    #[payable]
+    pub fn request_human_check(&mut self, kind: String, door_id: Option<u16>, captcha_token: String) -> Promise {
+        let verifier = self.config.human_verifier.clone().unwrap_or_else(|| env::panic_str("AUSPICE[HUMAN] TEE human verification is not configured"));
+        require!(matches!(kind.as_str(), "genesis" | "signal_door") && captcha_token.len() <= 4096 && !captcha_token.is_empty(), "AUSPICE[HUMAN] invalid request");
+        if kind == "genesis" { self.refresh_lifecycle(); require!(self.lifecycle == Lifecycle::GenesisOpen && door_id.is_none(), "AUSPICE[HUMAN] Genesis is unavailable"); }
+        if kind == "signal_door" { let id = door_id.unwrap_or_else(|| env::panic_str("AUSPICE[HUMAN] Door required")); require!(self.lifecycle == Lifecycle::DoorOpen && self.door(id).status == DoorStatus::Open, "AUSPICE[HUMAN] Door is unavailable"); }
+        let request_id = self.next_human_request_id;
+        self.next_human_request_id += 1;
+        let nonce = hex(&env::sha256(format!("human:{}:{}", env::current_account_id(), request_id).as_bytes()));
+        let requester = env::predecessor_account_id();
+        let max = if kind == "genesis" { self.config.genesis_user_cap } else { self.door(door_id.unwrap()).config.user_cap };
+        self.human_requests.insert(request_id, HumanCheckRequest { request_id, requester_id: requester.clone(), kind: kind.clone(), door_id, nonce: nonce.clone(), status: HumanCheckStatus::Pending, requested_at_ns: env::block_timestamp() });
+        self.emit("human_check_submitted", door_id, 0);
+        let input = json!({"request_id":request_id,"request_nonce":nonce,"coin_id":env::current_account_id(),"account_id":requester,"kind":kind,"door_id":door_id,"captcha_token":captcha_token,"expected_hostname":verifier.expected_hostname,"expected_action":if door_id.is_some(){verifier.signal_action}else{verifier.genesis_action},"max_allocation":max,"expected_wasm_hash":hex(&verifier.wasm_hash.0)}).to_string();
+        Promise::new(self.config.outlayer_account_id.clone()).function_call("request_execution", json!({"source":{"WasmUrl":{"url":verifier.wasm_url,"hash":hex(&verifier.wasm_hash.0),"build_target":verifier.wasm_build_target}},"resource_limits":{"max_instructions":1_000_000_000u64,"max_execution_seconds":30u64},"input_data":input,"secrets_ref":{"profile":verifier.secrets_profile,"account_id":verifier.secrets_account_id},"response_format":"Json","payer_account_id":env::predecessor_account_id(),"params":null}).to_string().into_bytes(), env::attached_deposit(), Gas::from_tgas(200)).then(Self::ext(env::current_account_id()).with_static_gas(Gas::from_tgas(30)).on_human_check_result(request_id))
+    }
+
+    #[private]
+    pub fn on_human_check_result(&mut self, request_id: u64) {
+        let mut request = self.human_requests.get(&request_id).cloned().unwrap_or_else(|| env::panic_str("AUSPICE[HUMAN] unknown request"));
+        require!(request.status == HumanCheckStatus::Pending, "AUSPICE[HUMAN] already resolved");
+        let verifier = self.config.human_verifier.clone().unwrap_or_else(|| env::panic_str("AUSPICE[HUMAN] missing verifier"));
+        let bytes = match env::promise_result_checked(0, 16_384) { Ok(value) => value, Err(_) => { request.status = HumanCheckStatus::Rejected; self.human_requests.insert(request_id, request); return; } };
+        let result: OutlayerHumanResult = match near_sdk::serde_json::from_slice(&bytes) { Ok(value) => value, Err(_) => { request.status = HumanCheckStatus::Rejected; self.human_requests.insert(request_id, request); return; } };
+        let valid = result.approved && result.request_id == request_id && result.request_nonce == request.nonce && result.coin_id == env::current_account_id() && result.account_id == request.requester_id && result.kind == request.kind && result.door_id == request.door_id && result.expires_at_ns > env::block_timestamp() && result.expires_at_ns <= env::block_timestamp().saturating_add(verifier.approval_lifetime_ns) && result.wasm_hash == hex(&verifier.wasm_hash.0);
+        if !valid { request.status = HumanCheckStatus::Rejected; self.human_requests.insert(request_id, request); self.emit("human_check_rejected", None, 0); return; }
+        request.status = HumanCheckStatus::Approved;
+        self.human_requests.insert(request_id, request.clone());
+        self.human_approvals.insert(request.requester_id, HumanApproval { request_id, kind: result.kind, door_id: result.door_id, nonce: result.request_nonce, expires_at_ns: result.expires_at_ns, max_allocation: result.max_allocation });
+        self.emit("human_check_approved", result.door_id, 0);
+    }
+
+    pub fn get_human_approval(&self, account_id: AccountId) -> Option<HumanApproval> { self.human_approvals.get(&account_id).cloned() }
 
     #[private]
     pub fn on_signal_result(&mut self, request_id: u64) {
@@ -929,6 +1063,7 @@ mod tests {
                         .to_bytes()
                         .to_vec(),
                 ),
+                human_verifier: None,
                 outlayer_account_id: account("outlayer.testnet"),
                 max_signal_age_ns: 60,
                 no_creator_genesis_allocation: true,

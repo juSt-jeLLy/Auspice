@@ -18,7 +18,7 @@ export type Door = {
 export type CoinSnapshot = {
   lifecycle: Lifecycle;
   metadata: { name: string; symbol: string; decimals: number };
-  launch: { creator_id: string; genesis_open_at_ns: number; genesis_close_at_ns: number; maximum_mintable_supply: string; genesis_reserve: string; genesis_price_yocto_near_per_token: string };
+  launch: { creator_id: string; genesis_open_at_ns: number; genesis_close_at_ns: number; maximum_mintable_supply: string; genesis_reserve: string; genesis_price_yocto_near_per_token: string; human_verifier?: { expected_hostname: string; genesis_action: string } | null };
   doors: Door[];
   supply: { maximum_mintable_supply: string; minted_supply: string; permanently_unmintable: string; remaining_mintable_supply: string };
   events: Array<{ id: number; kind: string; actor_id: string; door_id?: number | null; amount: string; timestamp_ns: number }>;

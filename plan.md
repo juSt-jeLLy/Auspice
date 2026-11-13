@@ -959,6 +959,32 @@ Return an attested, wallet-bound decision.
 
 Have the coin contract verify the designated worker’s signature and expected program hash.
 
+### 10.6.1 Implemented target: TEE-verified Turnstile allocation approval (V2 launches)
+
+New launches must use a separate, hash-pinned `auspice-human-verifier` WASI
+program. The browser renders a Cloudflare Turnstile widget and submits its
+short-lived token with a wallet-bound human-check request. The coin contract
+forwards that request to OutLayer. The verifier reads `TURNSTILE_SECRET` only
+from OutLayer encrypted secrets, calls Cloudflare Siteverify, and returns a
+canonical approval bound to the coin, caller account, action, request nonce,
+host, and expiry. A private contract callback validates those bindings and
+records one consumable approval. The later Genesis/Signal-Door allocation
+transaction consumes that on-chain approval and settles the purchase/mint in
+the NEP-141 contract.
+
+The frontend and any relay are untrusted transport only: neither can approve a
+human, forge a callback, mint, or reuse an approval. The proof token is
+short-lived and is supplied to the TEE execution; it must never be logged or
+persisted by the frontend.
+
+This is CAPTCHA-based bot resistance, not proof of unique personhood. A future
+World-ID/nullifier adapter can add one-person uniqueness without changing the
+core separation of TEE approval and on-chain settlement.
+
+The deployed `SHIP` proof coin remains a historical V1/testnet demonstration
+with its clearly labelled signed test pass. Its contract has no access keys and
+cannot be changed. The Turnstile path applies to new V2 launches only.
+
 ### 10.7 Testnet shortcut policy
 
 If a real CAPTCHA integration risks the core demo, use a mock provider only behind `TESTNET_DEMO_MODE=true`.
@@ -1154,7 +1180,7 @@ Do not expose CAPTCHA secret keys to the client.
 
 ### 12.0 Current deployment record
 
-The permissionless factory is deployed on NEAR testnet at `auspice-yagnesh.testnet`, with global coin code hash `4Uab5k15uKw5fqSPyjFZccnPuF4HeqcQwY5knancJLKp`. The factory owner is `auspice-yagnesh.testnet`. The first demo coin remains intentionally uncreated until its immutable OutLayer project ID and verifier WASM hash are available.
+The permissionless factory is deployed on NEAR testnet at `auspice-yagnesh.testnet`; its owner is `auspice-yourname.testnet`. The live V1 proof coin is `ship.auspice-yagnesh.testnet` and retains its original immutable testnet pass policy. The V2 human verifier is published at `busymuseum5448.testnet/auspice-human-verifier` with hash-pinned WASM `350b17d09fa390a28fbfdae49579206b8777ed48f07daef9db14a959782564ec` and its FastFS URL recorded in the deployment environment. Its `TURNSTILE_SECRET` must be stored only in OutLayer encrypted secrets before any V2 launch can use it.
 
 ### 12.1 Network choice
 

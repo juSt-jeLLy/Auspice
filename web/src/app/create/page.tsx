@@ -5,6 +5,7 @@ import { factoryId } from "@/lib/near";
 import { useWallet } from "@/components/wallet-provider";
 
 const ONE_DAY_NS = 86_400_000_000_000;
+const hexToBase64 = (value: string) => btoa(value.replace(/\s/g, "").match(/.{1,2}/g)?.map((part) => String.fromCharCode(Number.parseInt(part, 16))).join("") ?? "");
 
 export default function CreatePage() {
   const { accountId, call } = useWallet();
@@ -29,9 +30,12 @@ export default function CreatePage() {
       const normalized = symbol.toUpperCase();
       const sourceId = `github_release:${repository.trim()}`;
       const sourceUrl = `https://api.github.com/repos/${repository.trim()}/releases/latest`;
+      const humanVerifierHash = process.env.NEXT_PUBLIC_HUMAN_VERIFIER_WASM_HASH ?? "";
+      if (!humanVerifierHash || !process.env.NEXT_PUBLIC_HUMAN_VERIFIER_WASM_URL || !process.env.NEXT_PUBLIC_HUMAN_VERIFIER_PROJECT_ID) throw new Error("The V2 human verifier is not configured.");
       const config = {
         creator_id: accountId, maximum_mintable_supply: "1000000", genesis_reserve: "700000", genesis_user_cap: "10000", genesis_price_yocto_near_per_token: "1",
         genesis_open_at_ns: now + 3_600_000_000_000, genesis_close_at_ns: now + ONE_DAY_NS, human_pass_public_key: humanPassKey,
+        human_verifier: { wasm_url: process.env.NEXT_PUBLIC_HUMAN_VERIFIER_WASM_URL, wasm_hash: hexToBase64(humanVerifierHash), wasm_build_target: "wasm32-wasip2", secrets_profile: "production", secrets_account_id: "busymuseum5448.testnet", expected_hostname: new URL(process.env.NEXT_PUBLIC_SITE_URL ?? "https://web-tau-tan-79.vercel.app").host, genesis_action: "auspice_genesis", signal_action: "auspice_signal", approval_lifetime_ns: 600_000_000_000 },
         outlayer_account_id: "outlayer.testnet", max_signal_age_ns: 900_000_000_000, no_creator_genesis_allocation: true,
         doors: [{ door_id: 0, template: "GithubRelease", source_id: sourceId, source_url: sourceUrl,
           predicate: { version: 1, required_tag: requiredTag || null, minimum_magnitude_x10: null, expected_winner: null, required_text: null },
