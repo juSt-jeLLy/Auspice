@@ -9,6 +9,15 @@ All contracts and the Ship Signal proof launch use NEAR testnet only.
 - Pinned global coin code hash: `29dPdc4QYu21NqXz82obQKPFVRYXZwodn4enZkBrsGMm`
 - Verified factory state: `coin_count = 0`, minimum creation deposit `0.3 NEAR`
 
+## Published OutLayer verifier
+
+- OutLayer project: `busymuseum5448.testnet/auspice`
+- Build target: `wasm32-wasip2`
+- Exact FastFS URL: `https://test.fastfs.io/busymuseum5448.testnet/outlayer.testnet/70fffbca1595684ebdee739ec2a7681b5ce1cf8f61567f656ad1a173aa60ab49.wasm`
+- SHA-256: `70fffbca1595684ebdee739ec2a7681b5ce1cf8f61567f656ad1a173aa60ab49`
+
+The URL returned HTTP 200 and served 414,073 bytes when verified on 2026-11-13. New launches pin this URL and hash directly; changing the project’s active version cannot alter an existing Door.
+
 ## Retired predecessor deployment
 
 - Former factory account: `auspice-yagnesh.testnet`
