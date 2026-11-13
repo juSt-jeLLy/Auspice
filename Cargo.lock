@@ -45,6 +45,8 @@ dependencies = [
 name = "auspice-factory"
 version = "0.1.0"
 dependencies = [
+ "borsh",
+ "near-contract-standards",
  "near-sdk",
 ]
 

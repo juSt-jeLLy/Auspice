@@ -9,6 +9,8 @@ repository.workspace = true
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
+borsh = "1"
+near-contract-standards = "5.30"
 near-sdk = "5.30"
 
 [dev-dependencies]

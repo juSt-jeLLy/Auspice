@@ -246,7 +246,7 @@ impl AuspiceCoin {
     pub fn settle_genesis(&mut self, account_id: AccountId) {
         self.refresh_lifecycle();
         require!(
-            self.lifecycle == Lifecycle::GenesisSettling,
+            matches!(self.lifecycle, Lifecycle::GenesisSettling | Lifecycle::Live),
             "AUSPICE[GENESIS] settlement unavailable"
         );
         let requested = self.genesis_requests.get(&account_id).copied().unwrap_or(0);
@@ -270,6 +270,14 @@ impl AuspiceCoin {
             self.lifecycle == Lifecycle::GenesisSettling,
             "AUSPICE[GENESIS] settlement required"
         );
+        // No request can be added after the close timestamp. The unused portion
+        // of the Genesis reserve is therefore permanently removed before normal
+        // transfers become available; it cannot become an administrative mint.
+        self.permanently_unmintable += self
+            .config
+            .genesis_reserve
+            .0
+            .saturating_sub(self.total_requested);
         self.lifecycle = Lifecycle::Live;
     }
 
