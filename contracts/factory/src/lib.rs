@@ -11,7 +11,6 @@ use near_sdk::serde_json::{json, Value};
 use near_sdk::store::{LookupMap, Vector};
 use near_sdk::{
     env, near, require, AccountId, BorshStorageKey, Gas, NearToken, PanicOnDefault, Promise,
-    PromiseResult,
 };
 
 const MIN_CREATE_DEPOSIT: u128 = 300_000_000_000_000_000_000_000;
@@ -134,27 +133,24 @@ impl AuspiceFactory {
         deposit: u128,
     ) -> Option<AccountId> {
         self.pending.remove(&account_id);
-        match env::promise_result(0) {
-            PromiseResult::Successful(_) => {
-                let entry = CoinEntry {
-                    account_id: account_id.clone(),
-                    creator_id,
-                    name,
-                    symbol,
-                    created_at_ns: env::block_timestamp(),
-                };
-                let index = self.coins.len();
-                self.coins.push(entry);
-                self.by_account.insert(account_id.clone(), index);
-                env::log_str(&format!("EVENT_JSON:{{\"standard\":\"auspice\",\"version\":\"1.0.0\",\"event\":\"coin_created\",\"data\":[{{\"coin_id\":\"{}\"}}]}}", account_id));
-                Some(account_id)
-            }
-            PromiseResult::Failed => {
-                Promise::new(creator_id)
-                    .transfer(NearToken::from_yoctonear(deposit))
-                    .detach();
-                None
-            }
+        if env::promise_result_checked(0, 1024).is_ok() {
+            let entry = CoinEntry {
+                account_id: account_id.clone(),
+                creator_id,
+                name,
+                symbol,
+                created_at_ns: env::block_timestamp(),
+            };
+            let index = self.coins.len();
+            self.coins.push(entry);
+            self.by_account.insert(account_id.clone(), index);
+            env::log_str(&format!("EVENT_JSON:{{\"standard\":\"auspice\",\"version\":\"1.0.0\",\"event\":\"coin_created\",\"data\":[{{\"coin_id\":\"{}\"}}]}}", account_id));
+            Some(account_id)
+        } else {
+            Promise::new(creator_id)
+                .transfer(NearToken::from_yoctonear(deposit))
+                .detach();
+            None
         }
     }
 
