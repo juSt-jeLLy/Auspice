@@ -840,4 +840,38 @@ mod tests {
         token.request_genesis_allocation(genesis_pass("alice.testnet", 10), U128(10));
         assert_eq!(token.get_refundable_near(account("alice.testnet")), U128(5));
     }
+
+    #[test]
+    fn rejects_genesis_before_open_and_replayed_passes() {
+        let mut token = coin(50);
+        register(&mut token, "alice.testnet");
+        context("alice.testnet", 50, NearToken::from_yoctonear(10));
+        assert!(catch_unwind(AssertUnwindSafe(
+            || token.request_genesis_allocation(genesis_pass("alice.testnet", 10), U128(10))
+        ))
+        .is_err());
+
+        let mut token = coin(150);
+        register(&mut token, "alice.testnet");
+        let pass = genesis_pass("alice.testnet", 10);
+        context("alice.testnet", 150, NearToken::from_yoctonear(10));
+        token.request_genesis_allocation(pass.clone(), U128(10));
+        context("alice.testnet", 150, NearToken::from_yoctonear(10));
+        assert!(catch_unwind(AssertUnwindSafe(
+            || token.request_genesis_allocation(pass, U128(10))
+        ))
+        .is_err());
+    }
+
+    #[test]
+    fn rejects_a_pass_bound_to_another_wallet() {
+        let mut token = coin(150);
+        register(&mut token, "alice.testnet");
+        register(&mut token, "bob.testnet");
+        context("bob.testnet", 150, NearToken::from_yoctonear(10));
+        assert!(catch_unwind(AssertUnwindSafe(
+            || token.request_genesis_allocation(genesis_pass("alice.testnet", 10), U128(10))
+        ))
+        .is_err());
+    }
 }
