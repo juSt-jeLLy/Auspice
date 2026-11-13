@@ -5,9 +5,10 @@ set -eu
 : "${AUSPICE_DEPLOYER_ID:?Set AUSPICE_DEPLOYER_ID to the funded testnet signing account}"
 
 root_dir=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
-coin_wasm="$root_dir/contracts/coin/target/near/auspice_coin.wasm"
-factory_wasm="$root_dir/contracts/factory/target/near/auspice_factory.wasm"
+coin_wasm="$root_dir/target/near/auspice_coin/auspice_coin.wasm"
+factory_wasm="$root_dir/target/near/auspice_factory/auspice_factory.wasm"
 
+test -x "$(command -v near)" || { printf '%s\n' "Install near-cli-rs first: cargo install near-cli-rs" >&2; exit 1; }
 test -f "$coin_wasm" || { printf '%s\n' "Run scripts/build-contracts.sh first." >&2; exit 1; }
 test -f "$factory_wasm" || { printf '%s\n' "Run scripts/build-contracts.sh first." >&2; exit 1; }
 

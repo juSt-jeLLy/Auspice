@@ -2,6 +2,12 @@
 
 All contracts and the Raincheck demo use NEAR testnet only.
 
+Install the NEAR deployment CLI once before using the deployment script:
+
+```sh
+cargo install near-cli-rs
+```
+
 ## Required public accounts
 
 - Factory: `auspice.testnet` (or the account selected before deployment)
@@ -24,6 +30,7 @@ The deployment script stores the coin WASM as a NEAR global contract, then initi
 ## Before a live demo
 
 - Fund the deployer and factory with testnet NEAR for state and gas.
-- Generate separate testnet-only Ed25519 signing keys for human passes and signal proofs.
-- Configure the human-pass adapter and OutLayer worker/proof path.
+- Generate a testnet-only Ed25519 signing key for human passes and put its PEM value only in `HUMAN_PASS_SIGNING_KEY_PEM`; put the matching raw 32-byte public key (Base64) in the immutable coin configuration.
+- Set `TESTNET_DEMO_MODE=true`, `HUMAN_PASS_CHALLENGE_SECRET`, and `HUMAN_PASS_MAX_ALLOCATION` only for the clearly labeled testnet human-pass adapter.
+- Configure the OutLayer project and verifier WASM hash used by the immutable callback path.
 - Record every deployed account, artifact hash, and demonstration transaction ID in this document.

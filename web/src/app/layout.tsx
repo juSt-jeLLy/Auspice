@@ -1,5 +1,7 @@
 import type { Metadata } from "next";
 import "./globals.css";
+import { Nav } from "@/components/nav";
+import { WalletProvider } from "@/components/wallet-provider";
 
 export const metadata: Metadata = {
   title: "Auspice — Supply follows reality",
@@ -9,7 +11,7 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="en">
-      <body>{children}</body>
+      <body><WalletProvider><Nav />{children}</WalletProvider></body>
     </html>
   );
 }

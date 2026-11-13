@@ -4,15 +4,41 @@
 
 Auspice is a NEAR testnet protocol for memecoins with an equal-access Genesis allocation and future supply released only through immutable, attested Signal Doors.
 
-This repository is under active development. It will contain the NEAR contracts, web application, deployment scripts, and reproducible testnet evidence for the Raincheck (`RAIN`) demonstration coin.
+It contains the NEAR contracts, Next.js application, testnet deployment scripts, and reproducible build artifacts for the Raincheck (`RAIN`) demonstration coin.
 
 ## Status
 
-The project foundation is being established. See [plan.md](./plan.md) for the product specification, scope, threat model, and acceptance criteria.
+Implemented today:
+
+- NEP-141 token rails, NEP-145 storage management, and NEP-148 metadata.
+- Immutable Genesis allocations, caps, refund credit, permissionless settlement, and supply accounting.
+- A permissionless keyless-account factory pinned to a global coin contract hash.
+- A request-bound OutLayer Signal Door callback path; the browser cannot submit a proof or mint a token.
+- Wallet connection/account switching, contract reads, transaction prompts, Genesis request flow, factory configuration, and verification views.
+- A clearly labeled testnet-only human-pass adapter based on a one-use NEP-413 wallet challenge.
+
+See [plan.md](./plan.md) for the complete product specification, threat model, and acceptance criteria.
+
+## Local development
+
+```sh
+scripts/build-contracts.sh
+cargo test --workspace
+
+cd web
+npm install
+npm run dev
+```
+
+Copy `.env.example` to the deployment environment. For the testnet human-pass adapter, generate a development key with `node scripts/generate-human-pass-key.mjs`; never commit the emitted private PEM. Put its public key in the immutable launch configuration.
+
+## Deployment
+
+`scripts/deploy-testnet.sh` builds on NEAR testnet after `cargo install near-cli-rs`, a funded testnet deployer, and factory account have been configured. Details and the non-secret environment checklist are in [docs/TESTNET.md](./docs/TESTNET.md).
 
 ## Testnet only
 
-Not audited. Do not use real funds. Human-pass and external-signal mechanisms reduce risks; they do not prove unique personhood or the objective truth of an upstream data source.
+Not audited. Do not use real funds. Human-pass and external-signal mechanisms reduce risks; they do not prove unique personhood or the objective truth of an upstream data source. `TESTNET_DEMO_MODE` is explicitly a demo adapter, not production Sybil resistance.
 
 ## License
 

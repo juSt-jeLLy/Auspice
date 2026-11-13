@@ -35,7 +35,7 @@ enum StorageKey {
 }
 
 #[near(serializers = [borsh, json])]
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Lifecycle {
     Draft,
     GenesisOpen,
@@ -69,16 +69,17 @@ pub struct LaunchConfig {
     pub genesis_open_at_ns: u64,
     pub genesis_close_at_ns: u64,
     pub human_pass_public_key: Base64VecU8,
-    pub signal_public_key: Base64VecU8,
     pub tee_wasm_hash: Base64VecU8,
     pub outlayer_account_id: AccountId,
     pub outlayer_project_id: String,
+    pub max_signal_age_ns: u64,
+    pub no_creator_genesis_allocation: bool,
     pub doors: Vec<DoorConfig>,
     pub version: u16,
 }
 
 #[near(serializers = [borsh, json])]
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum DoorStatus {
     Locked,
     Open,
@@ -116,6 +117,7 @@ pub struct HumanPass {
 pub struct OutlayerSignalResult {
     pub request_id: u64,
     pub request_nonce: String,
+    pub coin_id: AccountId,
     pub door_id: u16,
     pub source_id: String,
     pub predicate_version: u16,
@@ -124,19 +126,6 @@ pub struct OutlayerSignalResult {
     pub expires_at_ns: u64,
     pub wasm_hash: Base64VecU8,
     pub response_hash: Base64VecU8,
-}
-
-#[near(serializers = [borsh, json])]
-#[derive(Clone)]
-pub struct SignalProof {
-    pub coin_id: AccountId,
-    pub door_id: u16,
-    pub source_id: String,
-    pub predicate_passed: bool,
-    pub expires_at_ns: u64,
-    pub wasm_hash: Base64VecU8,
-    pub response_hash: Base64VecU8,
-    pub signature: Base64VecU8,
 }
 
 #[near(serializers = [borsh, json])]
@@ -185,9 +174,16 @@ pub struct VerificationBundle {
     pub coin_id: AccountId,
     pub lifecycle: Lifecycle,
     pub tee_wasm_hash: Base64VecU8,
-    pub signal_public_key: Base64VecU8,
     pub doors: Vec<SignalDoor>,
     pub events: Vec<AuspiceEvent>,
+}
+
+#[near(serializers = [json])]
+pub struct SupplyStatus {
+    pub maximum_mintable_supply: U128,
+    pub minted_supply: U128,
+    pub permanently_unmintable: U128,
+    pub remaining_mintable_supply: U128,
 }
 
 #[near(contract_state)]
@@ -232,14 +228,16 @@ impl AuspiceCoin {
             "AUSPICE[CONFIG] OutLayer project is required"
         );
         require!(
+            config.max_signal_age_ns > 0,
+            "AUSPICE[CONFIG] maximum signal age is required"
+        );
+        require!(
             config.genesis_price_yocto_near_per_token.0 > 0,
             "AUSPICE[CONFIG] Genesis price must be positive"
         );
         require!(
-            config.human_pass_public_key.0.len() == 32
-                && config.signal_public_key.0.len() == 32
-                && config.tee_wasm_hash.0.len() == 32,
-            "AUSPICE[CONFIG] expected 32-byte keys and WASM hash"
+            config.human_pass_public_key.0.len() == 32 && config.tee_wasm_hash.0.len() == 32,
+            "AUSPICE[CONFIG] expected 32-byte human-pass key and WASM hash"
         );
         metadata.assert_valid();
         let door_total: Balance = config.doors.iter().map(|d| d.reserve.0).sum();
@@ -306,6 +304,11 @@ impl AuspiceCoin {
             requested_amount.0 > 0 && requested_amount.0 <= self.config.genesis_user_cap.0,
             "AUSPICE[GENESIS] allocation exceeds cap"
         );
+        require!(
+            !self.config.no_creator_genesis_allocation
+                || env::predecessor_account_id() != self.config.creator_id,
+            "AUSPICE[GENESIS] creator allocation is disabled"
+        );
         self.verify_pass(&pass, "genesis", None, requested_amount.0);
         let account = env::predecessor_account_id();
         require!(
@@ -354,7 +357,7 @@ impl AuspiceCoin {
             requested * self.config.genesis_reserve.0 / self.total_requested
         };
         self.token.internal_deposit(&account_id, allocation);
-        self.minted_supply += allocation;
+        self.mint_to(&account_id, allocation);
         self.genesis_claimed.insert(account_id.clone(), true);
         let paid = self.genesis_paid.get(&account_id).copied().unwrap_or(0);
         let due = self.price_for(allocation);
@@ -431,10 +434,14 @@ impl AuspiceCoin {
         require!(
             result.request_id == request_id
                 && result.request_nonce == request.nonce
+                && result.coin_id == env::current_account_id()
                 && result.door_id == request.door_id
                 && result.predicate_passed
+                && result.response_hash.0.len() == 32
+                && result.fetched_at_ns >= request.requested_at_ns
                 && result.expires_at_ns > env::block_timestamp()
-                && result.fetched_at_ns <= env::block_timestamp(),
+                && result.fetched_at_ns <= env::block_timestamp()
+                && env::block_timestamp() - result.fetched_at_ns <= self.config.max_signal_age_ns,
             "AUSPICE[PROOF] response binding mismatch"
         );
         let door = self.door(request.door_id);
@@ -461,32 +468,6 @@ impl AuspiceCoin {
         self.accepted_proofs.insert(proof_key, true);
         self.lifecycle = Lifecycle::DoorOpen;
         self.emit("door_opened", Some(request.door_id), 0);
-    }
-
-    #[private]
-    pub fn open_signal_door(&mut self, door_id: u16, proof: SignalProof) {
-        require!(
-            self.lifecycle == Lifecycle::Live,
-            "AUSPICE[DOOR] Genesis is not live"
-        );
-        self.verify_proof(&proof, door_id);
-        let proof_key = hex(&env::sha256(&proof.response_hash.0));
-        require!(
-            !self.accepted_proofs.contains_key(&proof_key),
-            "AUSPICE[PROOF] proof has already been used"
-        );
-        let door = self.door_mut(door_id);
-        require!(
-            door.status == DoorStatus::Locked,
-            "AUSPICE[DOOR] Door already opened"
-        );
-        door.status = DoorStatus::Open;
-        door.opened_at_ns = Some(env::block_timestamp());
-        door.closes_at_ns = Some(env::block_timestamp() + door.config.claim_window_ns);
-        door.proof_hash = Some(Base64VecU8(env::sha256(&proof.response_hash.0)));
-        self.accepted_proofs.insert(proof_key, true);
-        self.lifecycle = Lifecycle::DoorOpen;
-        self.emit("door_opened", Some(door_id), 0);
     }
 
     pub fn claim_signal_door(&mut self, door_id: u16, pass: HumanPass, amount: U128) {
@@ -520,8 +501,7 @@ impl AuspiceCoin {
             "AUSPICE[DOOR] reserve exhausted"
         );
         door.minted.0 += amount.0;
-        self.token.internal_deposit(&account, amount.0);
-        self.minted_supply += amount.0;
+        self.mint_to(&account, amount.0);
         self.consume(pass.nonce);
         self.emit("door_claimed", Some(door_id), amount.0);
     }
@@ -613,9 +593,20 @@ impl AuspiceCoin {
             coin_id: env::current_account_id(),
             lifecycle: self.lifecycle,
             tee_wasm_hash: self.config.tee_wasm_hash.clone(),
-            signal_public_key: self.config.signal_public_key.clone(),
             doors: self.list_doors(),
             events: self.events(Some(256)),
+        }
+    }
+    pub fn get_supply_status(&self) -> SupplyStatus {
+        let committed = self
+            .minted_supply
+            .checked_add(self.permanently_unmintable)
+            .unwrap_or_else(|| env::panic_str("AUSPICE[SUPPLY] accounting overflow"));
+        SupplyStatus {
+            maximum_mintable_supply: self.config.maximum_mintable_supply,
+            minted_supply: U128(self.minted_supply),
+            permanently_unmintable: U128(self.permanently_unmintable),
+            remaining_mintable_supply: U128(self.config.maximum_mintable_supply.0 - committed),
         }
     }
 
@@ -648,6 +639,18 @@ impl AuspiceCoin {
         let existing = self.refundable_near.get(account).copied().unwrap_or(0);
         self.refundable_near
             .insert(account.clone(), existing + amount);
+    }
+    fn mint_to(&mut self, account: &AccountId, amount: Balance) {
+        let updated_supply = self
+            .minted_supply
+            .checked_add(amount)
+            .unwrap_or_else(|| env::panic_str("AUSPICE[SUPPLY] mint overflow"));
+        require!(
+            updated_supply + self.permanently_unmintable <= self.config.maximum_mintable_supply.0,
+            "AUSPICE[SUPPLY] mint exceeds immutable cap"
+        );
+        self.token.internal_deposit(account, amount);
+        self.minted_supply = updated_supply;
     }
     fn price_for(&self, amount: Balance) -> Balance {
         mul_div(
@@ -722,42 +725,6 @@ impl AuspiceCoin {
         require!(
             env::ed25519_verify(&signature, message.as_bytes(), &key),
             "AUSPICE[PASS] signature failed"
-        );
-    }
-    fn verify_proof(&self, proof: &SignalProof, door_id: u16) {
-        require!(
-            proof.coin_id == env::current_account_id()
-                && proof.door_id == door_id
-                && proof.predicate_passed
-                && proof.expires_at_ns > env::block_timestamp()
-                && proof.wasm_hash.0 == self.config.tee_wasm_hash.0
-                && proof.source_id == self.door(door_id).config.source_id,
-            "AUSPICE[PROOF] proof binding mismatch"
-        );
-        let message = format!(
-            "auspice:signal:v1:{}:{}:{}:{}:{}",
-            proof.coin_id,
-            proof.door_id,
-            proof.source_id,
-            proof.expires_at_ns,
-            hex(&proof.response_hash.0)
-        );
-        let signature: [u8; 64] = proof
-            .signature
-            .0
-            .as_slice()
-            .try_into()
-            .unwrap_or_else(|_| env::panic_str("AUSPICE[PROOF] malformed signature"));
-        let key: [u8; 32] = self
-            .config
-            .signal_public_key
-            .0
-            .as_slice()
-            .try_into()
-            .unwrap();
-        require!(
-            env::ed25519_verify(&signature, message.as_bytes(), &key),
-            "AUSPICE[PROOF] signature failed"
         );
     }
 }
@@ -847,7 +814,7 @@ mod tests {
     use super::*;
     use ed25519_dalek::{Signer, SigningKey};
     use near_sdk::test_utils::VMContextBuilder;
-    use near_sdk::{testing_env, NearToken};
+    use near_sdk::{testing_env, NearToken, PromiseResult};
     use std::panic::{catch_unwind, AssertUnwindSafe};
 
     fn account(id: &str) -> AccountId {
@@ -861,6 +828,20 @@ mod tests {
         builder.block_timestamp(timestamp);
         builder.attached_deposit(deposit);
         testing_env!(builder.build());
+    }
+    fn callback_context(timestamp: u64, result: PromiseResult) {
+        let mut builder = VMContextBuilder::new();
+        builder.current_account_id(account("rain.auspice.testnet"));
+        builder.signer_account_id(account("rain.auspice.testnet"));
+        builder.predecessor_account_id(account("rain.auspice.testnet"));
+        builder.block_timestamp(timestamp);
+        testing_env!(
+            builder.build(),
+            near_sdk::test_vm_config(),
+            near_sdk::RuntimeFeesConfig::test(),
+            Default::default(),
+            vec![result]
+        );
     }
     fn coin(timestamp: u64) -> AuspiceCoin {
         context("creator.testnet", timestamp, NearToken::from_yoctonear(0));
@@ -889,15 +870,11 @@ mod tests {
                         .to_bytes()
                         .to_vec(),
                 ),
-                signal_public_key: Base64VecU8(
-                    SigningKey::from_bytes(&[8; 32])
-                        .verifying_key()
-                        .to_bytes()
-                        .to_vec(),
-                ),
                 tee_wasm_hash: Base64VecU8(vec![0; 32]),
                 outlayer_account_id: account("outlayer.testnet"),
                 outlayer_project_id: "auspice.testnet/weather-oracle".into(),
+                max_signal_age_ns: 60,
+                no_creator_genesis_allocation: true,
                 doors: vec![],
                 version: 1,
             },
@@ -994,6 +971,128 @@ mod tests {
         context("bob.testnet", 150, NearToken::from_yoctonear(10));
         assert!(catch_unwind(AssertUnwindSafe(
             || token.request_genesis_allocation(genesis_pass("alice.testnet", 10), U128(10))
+        ))
+        .is_err());
+    }
+
+    #[test]
+    fn rejects_a_creator_genesis_request_when_the_launch_disables_it() {
+        let mut token = coin(150);
+        register(&mut token, "creator.testnet");
+        context("creator.testnet", 150, NearToken::from_yoctonear(10));
+        assert!(catch_unwind(AssertUnwindSafe(
+            || token.request_genesis_allocation(genesis_pass("creator.testnet", 10), U128(10))
+        ))
+        .is_err());
+    }
+
+    fn coin_with_door(timestamp: u64) -> AuspiceCoin {
+        let mut token = coin(timestamp);
+        token.config.maximum_mintable_supply = U128(150);
+        token.config.genesis_reserve = U128(100);
+        token.config.doors = vec![DoorConfig {
+            door_id: 0,
+            source_id: "open_meteo_mumbai".into(),
+            source_url: "https://api.open-meteo.com/v1/forecast".into(),
+            reserve: U128(50),
+            user_cap: U128(10),
+            claim_window_ns: 20,
+            new_humans_only: true,
+            predicate_version: 1,
+        }];
+        token.doors.push(SignalDoor {
+            config: token.config.doors[0].clone(),
+            status: DoorStatus::Locked,
+            opened_at_ns: None,
+            closes_at_ns: None,
+            proof_hash: None,
+            minted: U128(0),
+            burned: U128(0),
+        });
+        token.lifecycle = Lifecycle::Live;
+        token
+    }
+
+    fn pending_signal_request(token: &mut AuspiceCoin) -> u64 {
+        let request_id = 0;
+        token.signal_requests.insert(
+            request_id,
+            SignalRequest {
+                door_id: 0,
+                nonce: "request-nonce".into(),
+                requester_id: account("alice.testnet"),
+                requested_at_ns: 250,
+            },
+        );
+        request_id
+    }
+
+    fn signal_result(coin_id: &str, fetched_at_ns: u64) -> OutlayerSignalResult {
+        OutlayerSignalResult {
+            request_id: 0,
+            request_nonce: "request-nonce".into(),
+            coin_id: account(coin_id),
+            door_id: 0,
+            source_id: "open_meteo_mumbai".into(),
+            predicate_version: 1,
+            predicate_passed: true,
+            fetched_at_ns,
+            expires_at_ns: 400,
+            wasm_hash: Base64VecU8(vec![0; 32]),
+            response_hash: Base64VecU8(vec![42; 32]),
+        }
+    }
+
+    #[test]
+    fn only_a_bound_outlayer_result_opens_a_signal_door() {
+        let mut token = coin_with_door(250);
+        let request_id = pending_signal_request(&mut token);
+        let result =
+            near_sdk::serde_json::to_vec(&signal_result("rain.auspice.testnet", 280)).unwrap();
+        callback_context(300, PromiseResult::Successful(result));
+        token.on_signal_result(request_id);
+        assert_eq!(token.get_door(0).status, DoorStatus::Open);
+        assert_eq!(token.get_lifecycle(), Lifecycle::DoorOpen);
+        assert_eq!(token.events(Some(1))[0].kind, "door_opened");
+    }
+
+    #[test]
+    fn rejects_stale_or_cross_coin_outlayer_results() {
+        let mut stale = coin_with_door(250);
+        pending_signal_request(&mut stale);
+        let stale_result =
+            near_sdk::serde_json::to_vec(&signal_result("rain.auspice.testnet", 200)).unwrap();
+        callback_context(300, PromiseResult::Successful(stale_result));
+        assert!(catch_unwind(AssertUnwindSafe(|| stale.on_signal_result(0))).is_err());
+
+        let mut wrong_coin = coin_with_door(250);
+        pending_signal_request(&mut wrong_coin);
+        let wrong_result =
+            near_sdk::serde_json::to_vec(&signal_result("other.testnet", 280)).unwrap();
+        callback_context(300, PromiseResult::Successful(wrong_result));
+        assert!(catch_unwind(AssertUnwindSafe(|| wrong_coin.on_signal_result(0))).is_err());
+
+        let mut missing_hash = coin_with_door(250);
+        pending_signal_request(&mut missing_hash);
+        let mut result = signal_result("rain.auspice.testnet", 280);
+        result.response_hash = Base64VecU8(vec![]);
+        callback_context(
+            300,
+            PromiseResult::Successful(near_sdk::serde_json::to_vec(&result).unwrap()),
+        );
+        assert!(catch_unwind(AssertUnwindSafe(|| missing_hash.on_signal_result(0))).is_err());
+    }
+
+    #[test]
+    fn supply_status_never_exceeds_the_immutable_cap() {
+        let mut token = coin_with_door(250);
+        register(&mut token, "alice.testnet");
+        token.mint_to(&account("alice.testnet"), 100);
+        let status = token.get_supply_status();
+        assert_eq!(status.minted_supply, U128(100));
+        assert_eq!(status.remaining_mintable_supply, U128(50));
+        assert!(catch_unwind(AssertUnwindSafe(
+            || token.mint_to(&account("alice.testnet"), 51)
         ))
         .is_err());
     }

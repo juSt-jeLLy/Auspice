@@ -696,8 +696,10 @@ pub struct LaunchConfig {
     pub genesis_close_at_ns: u64,
     pub doors: Vec<DoorConfig>,
     pub human_pass_public_key: PublicKey,
-    pub signal_public_key: PublicKey,
     pub tee_wasm_hash: CryptoHash,
+    pub outlayer_account_id: AccountId,
+    pub outlayer_project_id: String,
+    pub max_signal_age_ns: u64,
     pub no_creator_genesis_allocation: bool,
     pub version: u16,
 }
@@ -784,6 +786,7 @@ Coin public view methods:
 - `get_birth_certificate()`;
 - `get_refundable_near(account_id)`;
 - `is_pass_consumed(pass_hash)`;
+- `get_supply_status()`;
 - `get_verification_bundle()`.
 
 Genesis settlement behavior:
@@ -798,14 +801,13 @@ Genesis settlement behavior:
 - `assert_live_for_transfers()`;
 - `assert_storage_registered(account_id)`;
 - `verify_human_pass(pass, expected_kind, expected_door)`;
-- `verify_signal_proof(proof, door_config)`;
 - `consume_nonce(pass_hash)`;
 - `mint_to(account_id, amount, memo)`;
 - `mark_unmintable(amount, reason)`;
 - `emit_auspice_event(event)`;
 - `compute_genesis_allocation(account_id)`;
 - `assert_no_privileged_mint_caller()`.
-- `on_signal_result(request_id, result)`; private callback only; it rejects every caller except the immutable OutLayer callback path.
+- `on_signal_result(request_id)`; private promise callback only. It decodes the configured OutLayer execution result and rejects every direct caller or result that does not bind to the immutable request, coin, Door, source, predicate, verifier hash, freshness policy, and one-time Door state.
 
 ### 9.9 Invariants
 
@@ -933,6 +935,8 @@ The adapter must bind the pass to that account ID, coin ID, Door ID, nonce, expi
 
 The pass-signing key must be attested or transparently labeled as a testnet development key.
 
+The implemented testnet adapter uses a one-use NEP-413 wallet challenge bound to the exact coin, account, optional Door, recipient, and expiry. It verifies the returned key is currently a full-access key for the signing account before issuing a deterministic, wallet-bound pass. It is enabled only with `TESTNET_DEMO_MODE=true`, and requires server-only `HUMAN_PASS_CHALLENGE_SECRET`, `HUMAN_PASS_SIGNING_KEY_PEM`, and `HUMAN_PASS_MAX_ALLOCATION` variables.
+
 ### 10.6 Preferred production-like approach
 
 Build a small pinned WASM verifier for the human-pass policy.
@@ -964,6 +968,7 @@ Never claim an unsigned response is attested.
 - Bind output to `coin_id` and `door_id`.
 - Bind output to a unique request nonce.
 - Bind the signed proof message to the source response hash as well as the coin, Door, source ID, and expiry.
+- Store a maximum accepted signal age in immutable launch configuration and reject a result whose `fetched_at_ns` is older than that age.
 - Include an expiration time.
 - Reject stale proofs.
 - Reject mismatched source IDs.
