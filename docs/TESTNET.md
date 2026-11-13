@@ -2,7 +2,14 @@
 
 All contracts and the Ship Signal proof launch use NEAR testnet only.
 
-## Retired testnet factory
+## Live testnet factory
+
+- Factory account: `auspice-yagnesh.testnet`
+- Factory owner: `auspice-yourname.testnet`
+- Pinned global coin code hash: `29dPdc4QYu21NqXz82obQKPFVRYXZwodn4enZkBrsGMm`
+- Verified factory state: `coin_count = 0`, minimum creation deposit `0.3 NEAR`
+
+## Retired predecessor deployment
 
 - Former factory account: `auspice-yagnesh.testnet`
 - Former factory owner: `auspice-yagnesh.testnet`
@@ -35,9 +42,7 @@ AUSPICE_FACTORY_OWNER_ID=<testnet-account-to-record-as-owner> \
 scripts/deploy-testnet.sh
 ```
 
-## Staged replacement factory
-
-`auspice-yagnesh.testnet` was recreated on 2026-11-13 with a new full-access key and a 1 NEAR initial balance. It has no contract code or state yet. Fund this account before deployment; its factory owner will be recorded as `auspice-yourname.testnet` when the factory is initialized.
+The replacement `auspice-yagnesh.testnet` is deployed and initialized. Its new factory owner is `auspice-yourname.testnet`.
 
 The factory account itself must be funded and have its full-access signing key available to `near-cli-rs`. The deployment script stores the coin WASM as a NEAR global contract, then initializes the factory with the resulting immutable code hash. Coin creators subsequently call `create_coin` on the factory; no factory allowlist is involved.
 
