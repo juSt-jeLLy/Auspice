@@ -30,7 +30,7 @@ npm install
 npm run dev
 ```
 
-Copy `.env.example` to the deployment environment. For the testnet human-pass adapter, generate a development key with `node scripts/generate-human-pass-key.mjs`; never commit the emitted private PEM. Put its public key in the immutable launch configuration.
+Copy `.env.example` to the deployment environment. For the testnet human-pass adapter, generate a development key with `node scripts/generate-human-pass-key.mjs /absolute/path/to/human-pass.pem`; never commit that private PEM. Put its public key in the immutable launch configuration.
 
 ## Deployment
 
