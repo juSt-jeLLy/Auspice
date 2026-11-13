@@ -288,7 +288,7 @@ impl AuspiceCoin {
         );
         let account = env::predecessor_account_id();
         let paid = self.genesis_paid.get(&account).copied().unwrap_or(0);
-        self.genesis_paid.insert(account.clone(), paid + attached);
+        self.genesis_paid.insert(account.clone(), paid + required);
         if attached > required {
             self.credit_refund(&account, attached - required);
         }
