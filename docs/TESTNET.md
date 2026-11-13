@@ -2,6 +2,16 @@
 
 All contracts and the Raincheck demo use NEAR testnet only.
 
+## Deployed factory
+
+- Factory account: `auspice-yagnesh.testnet`
+- Factory owner: `auspice-yagnesh.testnet`
+- Pinned global coin code hash: `4Uab5k15uKw5fqSPyjFZccnPuF4HeqcQwY5knancJLKp`
+- Global coin-code transaction: [HYk5GE22QL2QZm9qLvHuk8A5FbDAccpgfqT3dKQP1nw](https://explorer.testnet.near.org/transactions/HYk5GE22QL2QZm9qLvHuk8A5FbDAccpgfqT3dKQP1nw)
+- Factory deployment/initialization: [5mHA4TDchJs9mHRfc6n9i9u73ZKJm9Z9A4rtyc2e4Xom](https://explorer.testnet.near.org/transactions/5mHA4TDchJs9mHRfc6n9i9u73ZKJm9Z9A4rtyc2e4Xom)
+
+Factory views verified immediately after deployment: `coin_count = 0`, owner matches the listed account, and the stored hash matches the global coin code hash.
+
 Install the NEAR deployment CLI once before using the deployment script:
 
 ```sh

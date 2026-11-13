@@ -1142,6 +1142,10 @@ Do not expose CAPTCHA secret keys to the client.
 
 ## 12. Testnet environment
 
+### 12.0 Current deployment record
+
+The permissionless factory is deployed on NEAR testnet at `auspice-yagnesh.testnet`, with global coin code hash `4Uab5k15uKw5fqSPyjFZccnPuF4HeqcQwY5knancJLKp`. The factory owner is `auspice-yagnesh.testnet`. The first demo coin remains intentionally uncreated until its immutable OutLayer project ID and verifier WASM hash are available.
+
 ### 12.1 Network choice
 
 Use NEAR testnet for every custom contract and token demo.

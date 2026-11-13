@@ -36,6 +36,8 @@ Copy `.env.example` to the deployment environment. For the testnet human-pass ad
 
 `scripts/deploy-testnet.sh` deploys on NEAR testnet after `cargo install near-cli-rs`, a funded factory account with an available full-access key, and a factory owner account have been configured. Details and the non-secret environment checklist are in [docs/TESTNET.md](./docs/TESTNET.md).
 
+The live testnet factory is [`auspice-yagnesh.testnet`](https://testnet.nearblocks.io/address/auspice-yagnesh.testnet), pinned to global coin code hash `4Uab5k15uKw5fqSPyjFZccnPuF4HeqcQwY5knancJLKp`. No demo coin has been created yet: its immutable OutLayer project and verifier hash are still required.
+
 ## Testnet only
 
 Not audited. Do not use real funds. Human-pass and external-signal mechanisms reduce risks; they do not prove unique personhood or the objective truth of an upstream data source. `TESTNET_DEMO_MODE` is explicitly a demo adapter, not production Sybil resistance.
