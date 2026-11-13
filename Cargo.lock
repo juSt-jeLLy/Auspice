@@ -33,12 +33,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "arrayvec"
+version = "0.7.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d3fb67a6e08acf24fdeccbac2cb6ac4305825bd1f117462e0e6f2f193345ad56"
+
+[[package]]
 name = "auspice-coin"
 version = "0.1.0"
 dependencies = [
  "borsh",
+ "ed25519-dalek",
  "near-contract-standards",
  "near-sdk",
+ "primitive-types 0.13.1",
 ]
 
 [[package]]
@@ -213,6 +221,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "72f5acc6cb2ba439de613abc23857ec3d78374d8ed5ac84e9d11336e87da8649"
 
 [[package]]
+name = "byte-slice-cast"
+version = "1.2.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7575182f7272186991736b70173b0ea045398f984bf5ebbb3804736ce1330c9d"
+
+[[package]]
 name = "byteorder"
 version = "1.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -306,6 +320,27 @@ name = "const-oid"
 version = "0.10.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "be95d4a884358a21a199689323c29e9256b4a1b315e22f183d155422041d3a9a"
+
+[[package]]
+name = "const_format"
+version = "0.2.37"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a3decb4d6965448659923544a634a0571ba44cede4e11ef15a5a317126840454"
+dependencies = [
+ "const_format_proc_macros",
+ "konst",
+]
+
+[[package]]
+name = "const_format_proc_macros"
+version = "0.2.37"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "941b570269a642506f08cb5b688c04bfa6cfd41a26f8bcdc49db8fd00c0ab659"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "unicode-xid",
+]
 
 [[package]]
 name = "convert_case"
@@ -647,6 +682,7 @@ version = "2.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "115531babc129696a58c64a4fef0a8bf9e9698629fb97e9e40767d235cfbcd53"
 dependencies = [
+ "pkcs8",
  "signature",
 ]
 
@@ -658,8 +694,10 @@ checksum = "70e796c081cee67dc755e1a36a0a172b897fab85fc3f6bc48307991f64e4eca9"
 dependencies = [
  "curve25519-dalek",
  "ed25519",
+ "serde",
  "sha2 0.10.9",
  "subtle",
+ "zeroize",
 ]
 
 [[package]]
@@ -757,6 +795,18 @@ version = "0.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cfcf0ed7fe52a17a03854ec54a9f76d6d84508d1c0e66bc1793301c73fc8493c"
 dependencies = [
+ "static_assertions",
+]
+
+[[package]]
+name = "fixed-hash"
+version = "0.8.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "835c052cb0c08c1acf6ffd71c022172e18723949c8282f2b9f27efbc51e64534"
+dependencies = [
+ "byteorder",
+ "rand",
+ "rustc-hex",
  "static_assertions",
 ]
 
@@ -961,6 +1011,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b9e0384b61958566e926dc50660321d12159025e767c18e043daf26b70104c39"
 
 [[package]]
+name = "impl-codec"
+version = "0.7.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2d40b9d5e17727407e55028eafc22b2dc68781786e6d7eb8a21103f5058e3a14"
+dependencies = [
+ "parity-scale-codec",
+]
+
+[[package]]
 name = "impl-tools"
 version = "0.12.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -979,6 +1038,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c81eb99ba7c6145aeccb8857ddc0c611cd52440091dcfddd605b6a930c9afbf4"
 dependencies = [
  "proc-macro-error3",
+ "proc-macro2",
+ "quote",
+ "syn 2.0.119",
+]
+
+[[package]]
+name = "impl-trait-for-tuples"
+version = "0.2.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a0eb5a3343abf848c0984fe4604b2b105da9539376e24fc0a3b0007411ae4fd9"
+dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.119",
@@ -1121,6 +1191,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "konst"
+version = "0.2.20"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "128133ed7824fcd73d6e7b17957c5eb7bacb885649bd8c69708b2331a10bcefb"
+dependencies = [
+ "konst_macro_rules",
+]
+
+[[package]]
+name = "konst_macro_rules"
+version = "0.2.19"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a4933f3f57a8e9d9da04db23fb153356ecaf00cbd14aee46279c33dc80925c37"
+
+[[package]]
 name = "lazy_static"
 version = "1.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1226,7 +1311,7 @@ dependencies = [
  "near-config-utils",
  "near-schema-checker-lib",
  "near-stdx",
- "primitive-types",
+ "primitive-types 0.10.1",
  "secp256k1",
  "serde",
  "serde_json",
@@ -1340,7 +1425,7 @@ dependencies = [
  "near-time",
  "num-rational",
  "ordered-float",
- "primitive-types",
+ "primitive-types 0.10.1",
  "serde",
  "serde_json",
  "serde_with",
@@ -1640,6 +1725,34 @@ dependencies = [
 ]
 
 [[package]]
+name = "parity-scale-codec"
+version = "3.7.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "799781ae679d79a948e13d4824a40970bfa500058d245760dd857301059810fa"
+dependencies = [
+ "arrayvec",
+ "bitvec",
+ "byte-slice-cast",
+ "const_format",
+ "impl-trait-for-tuples",
+ "parity-scale-codec-derive",
+ "rustversion",
+ "serde",
+]
+
+[[package]]
+name = "parity-scale-codec-derive"
+version = "3.7.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "34b4653168b563151153c9e4c08ebed57fb8262bebfa79711552fa983c623e7a"
+dependencies = [
+ "proc-macro-crate",
+ "proc-macro2",
+ "quote",
+ "syn 2.0.119",
+]
+
+[[package]]
 name = "parking_lot"
 version = "0.12.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1729,8 +1842,19 @@ version = "0.10.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "05e4722c697a58a99d5d06a08c30821d7c082a4632198de1eaa5a6c22ef42373"
 dependencies = [
- "fixed-hash",
- "uint",
+ "fixed-hash 0.7.0",
+ "uint 0.9.5",
+]
+
+[[package]]
+name = "primitive-types"
+version = "0.13.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d15600a7d856470b7d278b3fe0e311fe28c2526348549f8ef2ff7db3299c87f5"
+dependencies = [
+ "fixed-hash 0.8.0",
+ "impl-codec",
+ "uint 0.10.2",
 ]
 
 [[package]]
@@ -2428,6 +2552,18 @@ name = "uint"
 version = "0.9.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "76f64bba2c53b04fcab63c01a7d7427eadc821e3bc48c34dc9ba29c501164b52"
+dependencies = [
+ "byteorder",
+ "crunchy",
+ "hex",
+ "static_assertions",
+]
+
+[[package]]
+name = "uint"
+version = "0.10.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2833f28e3adbd1b867292ee4053252ea89ab85e44e5e4701ffead8cada0539fa"
 dependencies = [
  "byteorder",
  "crunchy",

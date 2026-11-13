@@ -104,6 +104,8 @@ impl AuspiceFactory {
             "AUSPICE[FACTORY] symbol is already taken"
         );
         self.pending.insert(account_id.clone(), true);
+        let name = metadata.name.clone();
+        let symbol = metadata.symbol.clone();
         let args = json!({ "factory_id": env::current_account_id(), "metadata": metadata, "config": config });
         Promise::new(account_id.clone())
             .create_account()
@@ -118,7 +120,7 @@ impl AuspiceFactory {
             .then(
                 Self::ext(env::current_account_id())
                     .with_static_gas(GAS_CALLBACK)
-                    .on_create_coin(account_id, creator_id, deposit),
+                    .on_create_coin(account_id, creator_id, name, symbol, deposit),
             )
     }
 
@@ -127,21 +129,17 @@ impl AuspiceFactory {
         &mut self,
         account_id: AccountId,
         creator_id: AccountId,
+        name: String,
+        symbol: String,
         deposit: u128,
     ) -> Option<AccountId> {
         self.pending.remove(&account_id);
         match env::promise_result(0) {
             PromiseResult::Successful(_) => {
-                let symbol = account_id
-                    .as_str()
-                    .split('.')
-                    .next()
-                    .unwrap_or_default()
-                    .to_ascii_uppercase();
                 let entry = CoinEntry {
                     account_id: account_id.clone(),
                     creator_id,
-                    name: symbol.clone(),
+                    name,
                     symbol,
                     created_at_ns: env::block_timestamp(),
                 };

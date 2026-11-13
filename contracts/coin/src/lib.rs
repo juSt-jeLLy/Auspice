@@ -13,6 +13,7 @@ use near_sdk::borsh::BorshSerialize;
 use near_sdk::json_types::{Base64VecU8, U128};
 use near_sdk::store::{LookupMap, Vector};
 use near_sdk::{env, near, require, AccountId, BorshStorageKey, PanicOnDefault, PromiseOrValue};
+use primitive_types::U256;
 
 type Balance = u128;
 
@@ -23,6 +24,8 @@ enum StorageKey {
     GenesisClaimed,
     UsedPasses,
     AcceptedProofs,
+    GenesisPaid,
+    RefundableNear,
     Doors,
     Events,
 }
@@ -57,6 +60,7 @@ pub struct LaunchConfig {
     pub maximum_mintable_supply: U128,
     pub genesis_reserve: U128,
     pub genesis_user_cap: U128,
+    pub genesis_price_yocto_near_per_token: U128,
     pub genesis_open_at_ns: u64,
     pub genesis_close_at_ns: u64,
     pub human_pass_public_key: Base64VecU8,
@@ -165,6 +169,8 @@ pub struct AuspiceCoin {
     lifecycle: Lifecycle,
     genesis_requests: LookupMap<AccountId, Balance>,
     genesis_claimed: LookupMap<AccountId, bool>,
+    genesis_paid: LookupMap<AccountId, Balance>,
+    refundable_near: LookupMap<AccountId, Balance>,
     used_passes: LookupMap<String, bool>,
     accepted_proofs: LookupMap<String, bool>,
     doors: Vector<SignalDoor>,
@@ -187,6 +193,10 @@ impl AuspiceCoin {
         require!(
             config.genesis_open_at_ns < config.genesis_close_at_ns,
             "AUSPICE[CONFIG] invalid Genesis schedule"
+        );
+        require!(
+            config.genesis_price_yocto_near_per_token.0 > 0,
+            "AUSPICE[CONFIG] Genesis price must be positive"
         );
         require!(
             config.human_pass_public_key.0.len() == 32
@@ -233,6 +243,8 @@ impl AuspiceCoin {
             lifecycle,
             genesis_requests: LookupMap::new(StorageKey::GenesisRequests),
             genesis_claimed: LookupMap::new(StorageKey::GenesisClaimed),
+            genesis_paid: LookupMap::new(StorageKey::GenesisPaid),
+            refundable_near: LookupMap::new(StorageKey::RefundableNear),
             used_passes: LookupMap::new(StorageKey::UsedPasses),
             accepted_proofs: LookupMap::new(StorageKey::AcceptedProofs),
             doors,
@@ -244,6 +256,7 @@ impl AuspiceCoin {
         }
     }
 
+    #[payable]
     pub fn request_genesis_allocation(&mut self, pass: HumanPass, requested_amount: U128) {
         self.refresh_lifecycle();
         require!(
@@ -267,6 +280,18 @@ impl AuspiceCoin {
         );
         self.genesis_requests
             .insert(account, prior + requested_amount.0);
+        let attached = env::attached_deposit().as_yoctonear();
+        let required = self.price_for(requested_amount.0);
+        require!(
+            attached >= required,
+            "AUSPICE[GENESIS] attached NEAR is below the fixed allocation price"
+        );
+        let account = env::predecessor_account_id();
+        let paid = self.genesis_paid.get(&account).copied().unwrap_or(0);
+        self.genesis_paid.insert(account.clone(), paid + attached);
+        if attached > required {
+            self.credit_refund(&account, attached - required);
+        }
         self.total_requested += requested_amount.0;
         self.consume(pass.nonce);
         self.emit("genesis_request", None, requested_amount.0);
@@ -291,7 +316,12 @@ impl AuspiceCoin {
         };
         self.token.internal_deposit(&account_id, allocation);
         self.minted_supply += allocation;
-        self.genesis_claimed.insert(account_id, true);
+        self.genesis_claimed.insert(account_id.clone(), true);
+        let paid = self.genesis_paid.get(&account_id).copied().unwrap_or(0);
+        let due = self.price_for(allocation);
+        if paid > due {
+            self.credit_refund(&account_id, paid - due);
+        }
         self.emit("genesis_settled", None, allocation);
     }
 
@@ -438,6 +468,16 @@ impl AuspiceCoin {
     pub fn is_pass_consumed(&self, nonce: String) -> bool {
         self.used_passes.contains_key(&nonce)
     }
+    pub fn get_refundable_near(&self, account_id: AccountId) -> U128 {
+        U128(self.refundable_near.get(&account_id).copied().unwrap_or(0))
+    }
+    pub fn withdraw_refund(&mut self) -> near_sdk::Promise {
+        let account = env::predecessor_account_id();
+        let amount = self.refundable_near.remove(&account).unwrap_or(0);
+        require!(amount > 0, "AUSPICE[REFUND] no refundable balance");
+        self.emit("refund_withdrawn", None, amount);
+        near_sdk::Promise::new(account).transfer(near_sdk::NearToken::from_yoctonear(amount))
+    }
     pub fn events(&self, limit: Option<u32>) -> Vec<AuspiceEvent> {
         let count = self.events.len() as usize;
         let limit = limit.unwrap_or(64).min(256) as usize;
@@ -482,6 +522,18 @@ impl AuspiceCoin {
     }
     fn consume(&mut self, nonce: String) {
         self.used_passes.insert(nonce, true);
+    }
+    fn credit_refund(&mut self, account: &AccountId, amount: Balance) {
+        let existing = self.refundable_near.get(account).copied().unwrap_or(0);
+        self.refundable_near
+            .insert(account.clone(), existing + amount);
+    }
+    fn price_for(&self, amount: Balance) -> Balance {
+        mul_div(
+            amount,
+            self.config.genesis_price_yocto_near_per_token.0,
+            10u128.pow(self.metadata.decimals as u32),
+        )
     }
     fn emit(&mut self, kind: &str, door_id: Option<u16>, amount: Balance) {
         self.event_count += 1;
@@ -592,6 +644,10 @@ impl AuspiceCoin {
 fn hex(bytes: &[u8]) -> String {
     bytes.iter().map(|byte| format!("{byte:02x}")).collect()
 }
+fn mul_div(a: u128, b: u128, denominator: u128) -> u128 {
+    require!(denominator > 0, "AUSPICE[MATH] zero denominator");
+    ((U256::from(a) * U256::from(b)) / U256::from(denominator)).as_u128()
+}
 
 #[near]
 impl FungibleTokenCore for AuspiceCoin {
@@ -668,6 +724,7 @@ impl FungibleTokenMetadataProvider for AuspiceCoin {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use ed25519_dalek::{Signer, SigningKey};
     use near_sdk::test_utils::VMContextBuilder;
     use near_sdk::{testing_env, NearToken};
     use std::panic::{catch_unwind, AssertUnwindSafe};
@@ -695,17 +752,28 @@ mod tests {
                 icon: None,
                 reference: None,
                 reference_hash: None,
-                decimals: 18,
+                decimals: 0,
             },
             LaunchConfig {
                 creator_id: account("creator.testnet"),
                 maximum_mintable_supply: U128(100),
                 genesis_reserve: U128(100),
                 genesis_user_cap: U128(50),
+                genesis_price_yocto_near_per_token: U128(1),
                 genesis_open_at_ns: 100,
                 genesis_close_at_ns: 200,
-                human_pass_public_key: Base64VecU8(vec![0; 32]),
-                signal_public_key: Base64VecU8(vec![0; 32]),
+                human_pass_public_key: Base64VecU8(
+                    SigningKey::from_bytes(&[7; 32])
+                        .verifying_key()
+                        .to_bytes()
+                        .to_vec(),
+                ),
+                signal_public_key: Base64VecU8(
+                    SigningKey::from_bytes(&[8; 32])
+                        .verifying_key()
+                        .to_bytes()
+                        .to_vec(),
+                ),
                 tee_wasm_hash: Base64VecU8(vec![0; 32]),
                 doors: vec![],
                 version: 1,
@@ -715,6 +783,26 @@ mod tests {
     fn register(coin: &mut AuspiceCoin, who: &str) {
         context(who, 150, NearToken::from_near(1));
         coin.storage_deposit(Some(account(who)), Some(true));
+    }
+
+    fn genesis_pass(who: &str, amount: u128) -> HumanPass {
+        let nonce = "a-unique-test-nonce".to_string();
+        let expires_at_ns = 190;
+        let message = format!(
+            "auspice:v1:genesis:rain.auspice.testnet::{}:{}:{}:{}",
+            who, nonce, expires_at_ns, amount
+        );
+        let signature = SigningKey::from_bytes(&[7; 32]).sign(message.as_bytes());
+        HumanPass {
+            kind: "genesis".into(),
+            coin_id: account("rain.auspice.testnet"),
+            door_id: None,
+            account_id: account(who),
+            nonce,
+            expires_at_ns,
+            max_allocation: U128(amount),
+            signature: Base64VecU8(signature.to_bytes().to_vec()),
+        }
     }
 
     #[test]
@@ -742,5 +830,14 @@ mod tests {
         context("alice.testnet", 250, NearToken::from_yoctonear(1));
         token.ft_transfer(account("bob.testnet"), U128(25), None);
         assert_eq!(token.ft_balance_of(account("bob.testnet")), U128(25));
+    }
+
+    #[test]
+    fn credits_genesis_overpayment_as_a_withdrawable_refund() {
+        let mut token = coin(150);
+        register(&mut token, "alice.testnet");
+        context("alice.testnet", 150, NearToken::from_yoctonear(15));
+        token.request_genesis_allocation(genesis_pass("alice.testnet", 10), U128(10));
+        assert_eq!(token.get_refundable_near(account("alice.testnet")), U128(5));
     }
 }

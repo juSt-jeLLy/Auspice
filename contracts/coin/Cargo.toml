@@ -12,6 +12,8 @@ crate-type = ["cdylib", "rlib"]
 borsh = "1"
 near-sdk = "5.30"
 near-contract-standards = "5.30"
+primitive-types = "0.13"
 
 [dev-dependencies]
+ed25519-dalek = "2"
 near-sdk = { version = "5.30", features = ["unit-testing"] }
