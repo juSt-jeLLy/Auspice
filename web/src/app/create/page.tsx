@@ -32,7 +32,7 @@ export default function CreatePage() {
       const config = {
         creator_id: accountId, maximum_mintable_supply: "1000000", genesis_reserve: "700000", genesis_user_cap: "10000", genesis_price_yocto_near_per_token: "1",
         genesis_open_at_ns: now + 3_600_000_000_000, genesis_close_at_ns: now + ONE_DAY_NS, human_pass_public_key: humanPassKey,
-        outlayer_account_id: "outlayer.testnet", max_signal_age_ns: "900000000000", no_creator_genesis_allocation: true,
+        outlayer_account_id: "outlayer.testnet", max_signal_age_ns: 900_000_000_000, no_creator_genesis_allocation: true,
         doors: [{ door_id: 0, template: "GithubRelease", source_id: sourceId, source_url: sourceUrl,
           predicate: { version: 1, required_tag: requiredTag || null, minimum_magnitude_x10: null, expected_winner: null, required_text: null },
           verifier_wasm_url: wasmUrl, verifier_wasm_hash: wasmHash, verifier_build_target: "wasm32-wasip2", reserve: "300000", user_cap: "5000", claim_window_ns: ONE_DAY_NS, new_humans_only: true }], version: 1,

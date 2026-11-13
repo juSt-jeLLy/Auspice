@@ -6,10 +6,18 @@ All contracts and the Ship Signal proof launch use NEAR testnet only.
 
 - Factory account: `auspice-yagnesh.testnet`
 - Factory owner: `auspice-yourname.testnet`
-- Configured future-coin hash: `29dPdc4QYu21NqXz82obQKPFVRYXZwodn4enZkBrsGMm` (the matching global-code upload is pending)
-- Verified factory state: `coin_count = 0`, minimum creation deposit `0.3 NEAR`
+- Pinned global coin-code hash: `29dPdc4QYu21NqXz82obQKPFVRYXZwodn4enZkBrsGMm`
+- Verified factory state: `coin_count = 1`, minimum creation deposit `0.3 NEAR`
 
-The first global upload from this recreated account failed on 2026-11-13 because the account had 24 NEAR while the protocol required 32.4004 NEAR for code storage. Fund the factory with at least 10 additional testnet NEAR before retrying. No coin was registered by the failed SHIP creation attempt.
+The current global code was uploaded after funding the account’s code-storage requirement. The factory retains approximately 3.08 NEAR after the upload for normal operations.
+
+## Live proof coin
+
+- Coin: `ship.auspice-yagnesh.testnet` (`SHIP`, Ship Signal)
+- Creation transaction: [HitNTAsEvQyfNQ7HMg4MLWtV5sBoMG1dhLoSArLwR54z](https://explorer.testnet.near.org/transactions/HitNTAsEvQyfNQ7HMg4MLWtV5sBoMG1dhLoSArLwR54z)
+- Lifecycle at creation: `GenesisOpen`
+- Genesis reserve: `700,000 SHIP`; Signal Door reserve: `300,000 SHIP`
+- Immutable Door: GitHub release `juSt-jeLLy/Auspice`, required tag `v1.0.0`
 
 ## Published OutLayer verifier
 
