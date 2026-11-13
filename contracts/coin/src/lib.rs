@@ -356,7 +356,6 @@ impl AuspiceCoin {
         } else {
             requested * self.config.genesis_reserve.0 / self.total_requested
         };
-        self.token.internal_deposit(&account_id, allocation);
         self.mint_to(&account_id, allocation);
         self.genesis_claimed.insert(account_id.clone(), true);
         let paid = self.genesis_paid.get(&account_id).copied().unwrap_or(0);
@@ -886,7 +885,7 @@ mod tests {
     }
 
     fn genesis_pass(who: &str, amount: u128) -> HumanPass {
-        let nonce = "a-unique-test-nonce".to_string();
+        let nonce = format!("a-unique-test-nonce-{who}");
         let expires_at_ns = 190;
         let message = format!(
             "auspice:v1:genesis:rain.auspice.testnet::{}:{}:{}:{}",
@@ -897,6 +896,25 @@ mod tests {
             kind: "genesis".into(),
             coin_id: account("rain.auspice.testnet"),
             door_id: None,
+            account_id: account(who),
+            nonce,
+            expires_at_ns,
+            max_allocation: U128(amount),
+            signature: Base64VecU8(signature.to_bytes().to_vec()),
+        }
+    }
+
+    fn door_pass(who: &str, door_id: u16, amount: u128) -> HumanPass {
+        let nonce = format!("a-unique-door-pass-{who}-{door_id}");
+        let expires_at_ns = 280;
+        let message = format!(
+            "auspice:v1:signal_door:rain.auspice.testnet:{door_id}:{who}:{nonce}:{expires_at_ns}:{amount}"
+        );
+        let signature = SigningKey::from_bytes(&[7; 32]).sign(message.as_bytes());
+        HumanPass {
+            kind: "signal_door".into(),
+            coin_id: account("rain.auspice.testnet"),
+            door_id: Some(door_id),
             account_id: account(who),
             nonce,
             expires_at_ns,
@@ -1095,5 +1113,39 @@ mod tests {
             || token.mint_to(&account("alice.testnet"), 51)
         ))
         .is_err());
+    }
+
+    #[test]
+    fn completes_genesis_signal_door_and_unmintable_supply_flow() {
+        let mut token = coin_with_door(150);
+        token.lifecycle = Lifecycle::GenesisOpen;
+        register(&mut token, "alice.testnet");
+        register(&mut token, "bob.testnet");
+        register(&mut token, "carol.testnet");
+
+        context("alice.testnet", 150, NearToken::from_yoctonear(30));
+        token.request_genesis_allocation(genesis_pass("alice.testnet", 30), U128(30));
+        context("bob.testnet", 150, NearToken::from_yoctonear(20));
+        token.request_genesis_allocation(genesis_pass("bob.testnet", 20), U128(20));
+        context("watcher.testnet", 210, NearToken::from_yoctonear(0));
+        token.settle_genesis(account("alice.testnet"));
+        token.settle_genesis(account("bob.testnet"));
+        token.finalize_genesis();
+        assert_eq!(token.ft_balance_of(account("alice.testnet")), U128(30));
+        assert_eq!(token.get_lifecycle(), Lifecycle::Live);
+
+        pending_signal_request(&mut token);
+        let result =
+            near_sdk::serde_json::to_vec(&signal_result("rain.auspice.testnet", 250)).unwrap();
+        callback_context(260, PromiseResult::Successful(result));
+        token.on_signal_result(0);
+        let pass = door_pass("carol.testnet", 0, 10);
+        context("carol.testnet", 270, NearToken::from_yoctonear(0));
+        token.claim_signal_door(0, pass, U128(10));
+        context("watcher.testnet", 281, NearToken::from_yoctonear(0));
+        token.close_signal_door(0);
+        assert_eq!(token.get_door(0).status, DoorStatus::ClosedBurned);
+        assert_eq!(token.get_supply_status().permanently_unmintable, U128(90));
+        assert_eq!(token.get_lifecycle(), Lifecycle::Finished);
     }
 }

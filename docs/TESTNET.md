@@ -21,11 +21,11 @@ Do not commit seed phrases, private keys, CAPTCHA secrets, or service credential
 ```sh
 scripts/build-contracts.sh
 AUSPICE_FACTORY_ID=auspice.testnet \
-AUSPICE_DEPLOYER_ID=<funded-testnet-account> \
+AUSPICE_FACTORY_OWNER_ID=<testnet-account-to-record-as-owner> \
 scripts/deploy-testnet.sh
 ```
 
-The deployment script stores the coin WASM as a NEAR global contract, then initializes the factory with the resulting immutable code hash. Coin creators subsequently call `create_coin` on the factory; no factory allowlist is involved.
+The factory account itself must be funded and have its full-access signing key available to `near-cli-rs`. The deployment script stores the coin WASM as a NEAR global contract, then initializes the factory with the resulting immutable code hash. Coin creators subsequently call `create_coin` on the factory; no factory allowlist is involved.
 
 ## Before a live demo
 
