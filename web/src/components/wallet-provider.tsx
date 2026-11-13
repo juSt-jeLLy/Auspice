@@ -18,7 +18,9 @@ type WalletState = {
   disconnect: () => Promise<void>;
   switchAccount: (accountId: string) => void;
   signMessage: (message: string, recipient: string, nonce: string) => Promise<{ accountId: string; publicKey: string; signature: string }>;
-  call: (receiverId: string, methodName: string, args: object, deposit?: string, gas?: bigint) => Promise<void>;
+  // A raw JSON payload is needed only for exact JSON u64 values (nanosecond
+  // timestamps). JavaScript numbers cannot represent those values safely.
+  call: (receiverId: string, methodName: string, args: object | string, deposit?: string, gas?: bigint) => Promise<void>;
 };
 
 const WalletContext = createContext<WalletState | null>(null);
@@ -75,10 +77,11 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
     if (!signed) throw new Error("Wallet did not return a message signature.");
     return signed;
   }, []);
-  const call = useCallback(async (receiverId: string, methodName: string, args: object, deposit = "0", gas = 100_000_000_000_000n) => {
+  const call = useCallback(async (receiverId: string, methodName: string, args: object | string, deposit = "0", gas = 100_000_000_000_000n) => {
     const walletSelector = await selector();
     const wallet = await walletSelector.wallet();
-    await wallet.signAndSendTransaction({ receiverId, signerId: accountId ?? undefined, actions: [new Action({ functionCall: new FunctionCall({ methodName, args: new TextEncoder().encode(JSON.stringify(args)), gas, deposit: BigInt(deposit) }) })] });
+    const encodedArgs = typeof args === "string" ? args : JSON.stringify(args);
+    await wallet.signAndSendTransaction({ receiverId, signerId: accountId ?? undefined, actions: [new Action({ functionCall: new FunctionCall({ methodName, args: new TextEncoder().encode(encodedArgs), gas, deposit: BigInt(deposit) }) })] });
   }, [accountId]);
   const value = useMemo(() => ({ accountId, accounts, ready, connect, disconnect, switchAccount, signMessage, call }), [accountId, accounts, ready, connect, disconnect, switchAccount, signMessage, call]);
   return <WalletContext.Provider value={value}>{children}</WalletContext.Provider>;

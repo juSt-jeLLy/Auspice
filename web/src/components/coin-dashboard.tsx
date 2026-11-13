@@ -5,6 +5,20 @@ import { useCallback, useEffect, useState } from "react";
 import { coinId, explorerAccount, formatUnits, readCoin, type CoinSnapshot } from "@/lib/near";
 import { useWallet } from "./wallet-provider";
 
+/**
+ * NEAR's Rust JSON ABI accepts u64 timestamps as JSON numbers.  A timestamp in
+ * nanoseconds is larger than Number.MAX_SAFE_INTEGER, so JSON.stringify would
+ * either quote it or silently alter it.  The pass is server-issued; validate
+ * the one raw field and preserve its exact decimal form in the payload.
+ */
+function genesisAllocationArgs(pass: Record<string, unknown>, requestedAmount: string) {
+  const expiresAtNs = pass.expires_at_ns;
+  if (typeof expiresAtNs !== "string" || !/^(0|[1-9]\d*)$/.test(expiresAtNs)) throw new Error("Human-pass expiry is invalid.");
+  const marker = "__AUSPICE_EXACT_U64__";
+  const payload = JSON.stringify({ pass: { ...pass, expires_at_ns: marker }, requested_amount: requestedAmount });
+  return payload.replace(`"${marker}"`, expiresAtNs);
+}
+
 export function CoinDashboard({ accountId = coinId }: { accountId?: string }) {
   const [coin, setCoin] = useState<CoinSnapshot | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -25,7 +39,7 @@ export function CoinDashboard({ accountId = coinId }: { accountId?: string }) {
       const pass = await passResponse.json(); if (!passResponse.ok) throw new Error(pass.error);
       const requested = BigInt(amount); const deposit = (requested * BigInt(coin.launch.genesis_price_yocto_near_per_token ?? "0")).toString();
       await call(accountId, "storage_deposit", { account_id: walletId, registration_only: true }, "1250000000000000000000");
-      await call(accountId, "request_genesis_allocation", { pass, requested_amount: amount }, deposit); await refresh();
+      await call(accountId, "request_genesis_allocation", genesisAllocationArgs(pass, amount), deposit); await refresh();
     } catch (cause) { setError(cause instanceof Error ? cause.message : "Genesis request failed."); } finally { setBusy(false); }
   };
   if (!accountId) return <section className="empty"><h1>Choose a launch to inspect.</h1><p>Browse factory launches or open a coin account URL.</p><Link href="/create" className="button yellow">Create a coin</Link></section>;
