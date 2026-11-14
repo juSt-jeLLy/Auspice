@@ -9,6 +9,10 @@ import { Turnstile } from "./turnstile";
 
 const STORAGE_DEPOSIT = "1250000000000000000000";
 const EXECUTION_DEPOSIT = "100000000000000000000000";
+// OutLayer requests reserve 200 Tgas for the verifier plus a 30–40 Tgas
+// private callback. The wallet transaction must therefore provide more than
+// the default 100 Tgas or NEAR rejects it before the TEE is reached.
+const OUTLAYER_GAS = 300_000_000_000_000n;
 
 function approvedFor(coin: CoinSnapshot, kind: "genesis" | "signal_door", doorId?: number) {
   const approval = coin.humanApproval;
@@ -99,15 +103,15 @@ export function CoinDashboard({ accountId = coinId }: { accountId?: string }) {
   if (!coin) return <section className="empty"><p className="eyebrow">Reading NEAR state…</p></section>;
   const genesisApproved = approvedFor(coin, "genesis");
   const genesisPrice = (BigInt(amount || "0") * BigInt(coin.launch.genesis_price_yocto_near_per_token)).toString();
-  const verifyGenesis = () => captchaToken && act(() => call(accountId, "request_human_check", { kind: "genesis", door_id: null, captcha_token: captchaToken }, EXECUTION_DEPOSIT));
+  const verifyGenesis = () => captchaToken && act(() => call(accountId, "request_human_check", { kind: "genesis", door_id: null, captcha_token: captchaToken }, EXECUTION_DEPOSIT, OUTLAYER_GAS));
   const submitGenesis = () => act(async () => { await call(accountId, "storage_deposit", { account_id: walletId, registration_only: true }, STORAGE_DEPOSIT); await call(accountId, "request_genesis_allocation", { requested_amount: amount }, genesisPrice); setCaptchaToken(null); });
-  const verifyDoor = (doorId: number, token: string) => void act(() => call(accountId, "request_human_check", { kind: "signal_door", door_id: doorId, captcha_token: token }, EXECUTION_DEPOSIT));
+  const verifyDoor = (doorId: number, token: string) => void act(() => call(accountId, "request_human_check", { kind: "signal_door", door_id: doorId, captcha_token: token }, EXECUTION_DEPOSIT, OUTLAYER_GAS));
   const claimDoor = (doorId: number, claimAmount: string) => void act(async () => { await call(accountId, "storage_deposit", { account_id: walletId, registration_only: true }, STORAGE_DEPOSIT); await call(accountId, "claim_signal_door", { door_id: doorId, amount: claimAmount }); });
   const checkInStreak = () => void act(() => call(accountId, "check_in_streak", {}, "1"));
   const settleStreak = () => void act(() => call(accountId, "settle_streak_day", {}));
   const submitEvidence = (id: number, evidenceUrl: string, evidenceHash: string) => void act(() => call(accountId, "submit_commitment_evidence", { commitment_id: id, evidence_url: evidenceUrl, evidence_hash: evidenceHash }));
   const openCommitmentVote = (id: number) => void act(() => call(accountId, "open_commitment_vote", { commitment_id: id }));
-  const verifyCommitmentVote = (id: number, token: string) => void act(() => call(accountId, "request_human_check", { kind: "commitment_vote", door_id: id, captcha_token: token }, EXECUTION_DEPOSIT));
+  const verifyCommitmentVote = (id: number, token: string) => void act(() => call(accountId, "request_human_check", { kind: "commitment_vote", door_id: id, captcha_token: token }, EXECUTION_DEPOSIT, OUTLAYER_GAS));
   const voteCommitment = (id: number, support: boolean) => void act(() => call(accountId, "vote_commitment", { commitment_id: id, support }));
   const settleCommitment = (id: number) => void act(() => call(accountId, "settle_commitment", { commitment_id: id }));
   const claimCreatorCommitment = (id: number) => void act(async () => { await call(accountId, "storage_deposit", { account_id: walletId, registration_only: true }, STORAGE_DEPOSIT); await call(accountId, "claim_creator_commitment_reward", { commitment_id: id }); });
@@ -128,6 +132,6 @@ export function CoinDashboard({ accountId = coinId }: { accountId?: string }) {
     {coin.circulation || coin.launch.circulation ? <section className="genesis circulation-panel"><div><div className="section-kicker">Circulation decay</div><h2>{coin.launch.circulation?.daily_decay_bps ?? coin.circulation?.config.daily_decay_bps} bps settles each elapsed day.</h2>{walletId && coin.circulation ? <><p>Wallet balance: {formatUnits(coin.circulation.balance, coin.metadata.decimals)} · pending decay: {formatUnits(coin.circulation.pending_decay, coin.metadata.decimals)} across {coin.circulation.pending_days} full day{coin.circulation.pending_days === 1 ? "" : "s"}.</p><p className="muted">Last boundary {new Date(coin.circulation.last_settled_at_ns / 1_000_000).toLocaleString()} · next boundary {new Date(coin.circulation.next_settlement_at_ns / 1_000_000).toLocaleString()}.</p></> : <p>Connect a wallet to read its exact pending lazy settlement from the contract.</p>}</div><div>{walletId ? <button className="button yellow" disabled={busy || !coin.circulation || coin.circulation.pending_days === 0} onClick={settleCirculation}>Settle my circulation</button> : null}</div></section> : null}
     {coin.protection ? <ProbePanel coin={coin} coinAccountId={accountId} busy={busy} record={probeProtection} /> : null}
     {coin.commitments.length ? <section className="doors"><div className="section-kicker">Proofbound commitments</div><p className="notice">Evidence is public. Settled Genesis participants use a fresh TEE human check to cast one equal vote; failure burns the frozen reward slices.</p>{coin.commitments.map((commitment) => <CommitmentCard key={commitment.config.commitment_id} coin={coin} commitment={commitment} busy={busy} evidence={submitEvidence} openVote={openCommitmentVote} verify={verifyCommitmentVote} vote={voteCommitment} settle={settleCommitment} claimCreator={claimCreatorCommitment} claimVoter={claimVoterCommitment} />)}</section> : null}
-    <section className="doors"><div className="section-kicker">Immutable Signal Doors</div>{coin.doors.map((door) => <DoorCard key={door.config.door_id} coin={coin} door={door} busy={busy} evaluate={(id) => void act(() => call(accountId, "request_signal_check", { door_id: id }, EXECUTION_DEPOSIT))} verify={verifyDoor} claim={claimDoor} close={(id) => void act(() => call(accountId, "close_signal_door", { door_id: id }))} />)}</section>
+    <section className="doors"><div className="section-kicker">Immutable Signal Doors</div>{coin.doors.map((door) => <DoorCard key={door.config.door_id} coin={coin} door={door} busy={busy} evaluate={(id) => void act(() => call(accountId, "request_signal_check", { door_id: id }, EXECUTION_DEPOSIT, OUTLAYER_GAS))} verify={verifyDoor} claim={claimDoor} close={(id) => void act(() => call(accountId, "close_signal_door", { door_id: id }))} />)}</section>
     <section className="events"><div className="section-kicker">Submitted Signals</div>{coin.signalRequests.length ? coin.signalRequests.slice().reverse().map((request) => <p key={request.request_id}><b>Door {request.door_id + 1}: {request.status}</b><span>{request.requester_id}</span><time>{request.failure_reason ?? new Date(request.requested_at_ns / 1_000_000).toLocaleString()}</time></p>) : <p className="muted">No evaluation requests yet.</p>}</section><section className="events"><div className="section-kicker">On-chain history</div>{coin.events.length ? coin.events.slice().reverse().map((event) => <p key={event.id}><b>{event.kind.replaceAll("_", " ")}</b><span>{event.actor_id}</span><time>{new Date(event.timestamp_ns / 1_000_000).toLocaleString()}</time></p>) : <p className="muted">No receipts yet.</p>}</section></main>;
 }
