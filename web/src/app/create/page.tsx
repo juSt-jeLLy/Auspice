@@ -7,7 +7,7 @@ import { templateShareUrl, templates, type LaunchTemplate } from "@/lib/launch-c
 
 const DAY_NS = 86_400_000_000_000n;
 const HOUR_NS = 3_600_000_000_000n;
-const DEMO_GENESIS_NS = 300_000_000_000n;
+const DEMO_GENESIS_NS = DAY_NS;
 const testnetDemoAvailable = process.env.NEXT_PUBLIC_TESTNET_DEMO_MODE === "true";
 const testnetDemoHumanVerifier = {
   wasm_url: "https://test.fastfs.io/busymuseum5448.testnet/outlayer.testnet/0edabc6944e69a3a17d6dc288565966916172289d7c72cf9ef8fc042a1a4a869.wasm",
