@@ -1,5 +1,5 @@
 [workspace]
-members = ["contracts/factory", "contracts/coin", "tee/auspice-verifier", "tee/auspice-human-verifier", "tee/auspice-human-diagnostic"]
+members = ["contracts/factory", "contracts/coin", "tee/auspice-verifier", "tee/auspice-human-verifier", "tee/auspice-human-diagnostic", "tee/auspice-demo-human-verifier"]
 resolver = "2"
 
 [workspace.package]

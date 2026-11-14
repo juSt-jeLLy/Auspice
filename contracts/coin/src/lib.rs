@@ -322,6 +322,12 @@ pub struct HumanVerifierConfig {
     pub genesis_action: String,
     pub signal_action: String,
     pub approval_lifetime_ns: u64,
+    /// Explicitly testnet-only approval mode. The verifier remains hash-pinned
+    /// and its callback remains private, but the contract derives expiry at
+    /// callback time because some testnet workers do not expose a WASI clock.
+    /// This must never be enabled for a mainnet coin.
+    #[serde(default)]
+    pub testnet_demo: bool,
 }
 
 #[near(serializers = [borsh, json])]
@@ -538,6 +544,7 @@ impl AuspiceCoin {
         let verifier = &config.human_verifier;
         require!(verifier.wasm_hash.0.len() == 32 && verifier.wasm_url.starts_with("https://") && verifier.wasm_build_target == "wasm32-wasip2", "AUSPICE[CONFIG] human verifier must pin a HTTPS WASI P2 build");
         require!(!verifier.secrets_profile.is_empty() && !verifier.expected_hostname.is_empty() && !verifier.genesis_action.is_empty() && !verifier.signal_action.is_empty() && verifier.approval_lifetime_ns > 0, "AUSPICE[CONFIG] invalid human verifier policy");
+        require!(!verifier.testnet_demo || env::current_account_id().as_str().ends_with(".testnet"), "AUSPICE[CONFIG] demo approvals are testnet-only");
         metadata.assert_valid();
         let door_total: Balance = config.doors.iter().map(|d| d.reserve.0).sum();
         let streak_total = config.streak.as_ref().map(|streak| streak.reserve.0).unwrap_or(0);
@@ -965,7 +972,8 @@ impl AuspiceCoin {
         self.human_requests.insert(request_id, HumanCheckRequest { request_id, requester_id: requester.clone(), kind: kind.clone(), door_id, nonce: nonce.clone(), status: HumanCheckStatus::Pending, requested_at_ns: env::block_timestamp() });
         self.emit("human_check_submitted", door_id, 0);
         let input = json!({"request_id":request_id,"request_nonce":nonce,"coin_id":env::current_account_id(),"account_id":requester,"kind":kind,"door_id":door_id,"captcha_token":captcha_token,"expected_hostname":verifier.expected_hostname,"expected_action":if door_id.is_some(){verifier.signal_action}else{verifier.genesis_action},"max_allocation":max,"expected_wasm_hash":hex(&verifier.wasm_hash.0)}).to_string();
-        Promise::new(self.config.outlayer_account_id.clone()).function_call("request_execution", json!({"source":{"WasmUrl":{"url":verifier.wasm_url,"hash":hex(&verifier.wasm_hash.0),"build_target":verifier.wasm_build_target}},"resource_limits":{"max_instructions":1_000_000_000u64,"max_execution_seconds":30u64},"input_data":input,"secrets_ref":{"profile":verifier.secrets_profile,"account_id":verifier.secrets_account_id},"response_format":"Json","payer_account_id":env::predecessor_account_id(),"params":null}).to_string().into_bytes(), env::attached_deposit(), Gas::from_tgas(200)).then(Self::ext(env::current_account_id()).with_static_gas(Gas::from_tgas(30)).on_human_check_result(request_id))
+        let secrets_ref = if verifier.testnet_demo { None } else { Some(json!({"profile":verifier.secrets_profile,"account_id":verifier.secrets_account_id})) };
+        Promise::new(self.config.outlayer_account_id.clone()).function_call("request_execution", json!({"source":{"WasmUrl":{"url":verifier.wasm_url,"hash":hex(&verifier.wasm_hash.0),"build_target":verifier.wasm_build_target}},"resource_limits":{"max_instructions":1_000_000_000u64,"max_execution_seconds":30u64},"input_data":input,"secrets_ref":secrets_ref,"response_format":"Json","payer_account_id":env::predecessor_account_id(),"params":null}).to_string().into_bytes(), env::attached_deposit(), Gas::from_tgas(200)).then(Self::ext(env::current_account_id()).with_static_gas(Gas::from_tgas(30)).on_human_check_result(request_id))
     }
 
     #[private]
@@ -975,11 +983,16 @@ impl AuspiceCoin {
         let verifier = self.config.human_verifier.clone();
         let bytes = match env::promise_result_checked(0, 16_384) { Ok(value) => value, Err(_) => { request.status = HumanCheckStatus::Rejected; self.human_requests.insert(request_id, request); return; } };
         let result: OutlayerHumanResult = match near_sdk::serde_json::from_slice(&bytes) { Ok(value) => value, Err(_) => { request.status = HumanCheckStatus::Rejected; self.human_requests.insert(request_id, request); return; } };
-        let valid = result.approved && result.request_id == request_id && result.request_nonce == request.nonce && result.coin_id == env::current_account_id() && result.account_id == request.requester_id && result.kind == request.kind && result.door_id == request.door_id && result.expires_at_ns > env::block_timestamp() && result.expires_at_ns <= env::block_timestamp().saturating_add(verifier.approval_lifetime_ns) && result.wasm_hash == hex(&verifier.wasm_hash.0);
+        let expires_at_ns = if verifier.testnet_demo && result.expires_at_ns == 0 {
+            env::block_timestamp().saturating_add(verifier.approval_lifetime_ns)
+        } else {
+            result.expires_at_ns
+        };
+        let valid = result.approved && result.request_id == request_id && result.request_nonce == request.nonce && result.coin_id == env::current_account_id() && result.account_id == request.requester_id && result.kind == request.kind && result.door_id == request.door_id && expires_at_ns > env::block_timestamp() && expires_at_ns <= env::block_timestamp().saturating_add(verifier.approval_lifetime_ns) && result.wasm_hash == hex(&verifier.wasm_hash.0);
         if !valid { request.status = HumanCheckStatus::Rejected; self.human_requests.insert(request_id, request); self.emit("human_check_rejected", None, 0); return; }
         request.status = HumanCheckStatus::Approved;
         self.human_requests.insert(request_id, request.clone());
-        self.human_approvals.insert(request.requester_id, HumanApproval { request_id, kind: result.kind, door_id: result.door_id, nonce: result.request_nonce, expires_at_ns: result.expires_at_ns, max_allocation: result.max_allocation });
+        self.human_approvals.insert(request.requester_id, HumanApproval { request_id, kind: result.kind, door_id: result.door_id, nonce: result.request_nonce, expires_at_ns, max_allocation: result.max_allocation });
         self.emit("human_check_approved", result.door_id, 0);
     }
 
@@ -1605,6 +1618,7 @@ mod tests {
                     genesis_action: "auspice_genesis".into(),
                     signal_action: "auspice_signal".into(),
                     approval_lifetime_ns: 1_000,
+                    testnet_demo: false,
                 },
                 outlayer_account_id: account("outlayer.testnet"),
                 max_signal_age_ns: 60,
@@ -1730,6 +1744,7 @@ mod tests {
             genesis_action: "auspice_genesis".into(),
             signal_action: "auspice_signal".into(),
             approval_lifetime_ns: 1_000,
+            testnet_demo: false,
         };
     }
 
@@ -1869,6 +1884,38 @@ mod tests {
         assert_eq!(token.get_door(0).minted, U128(10));
         assert!(token.get_human_approval(account("carol.testnet")).is_none());
         assert!(catch_unwind(AssertUnwindSafe(|| token.claim_signal_door(0, U128(1)))).is_err());
+    }
+
+    #[test]
+    fn testnet_demo_callback_derives_a_short_lived_expiry_on_chain() {
+        let mut token = coin(150);
+        set_human_verifier(&mut token);
+        token.config.human_verifier.testnet_demo = true;
+        token.human_requests.insert(0, HumanCheckRequest {
+            request_id: 0,
+            requester_id: account("alice.testnet"),
+            kind: "genesis".into(),
+            door_id: None,
+            nonce: "demo-request-nonce".into(),
+            status: HumanCheckStatus::Pending,
+            requested_at_ns: 150,
+        });
+        let result = OutlayerHumanResult {
+            request_id: 0,
+            request_nonce: "demo-request-nonce".into(),
+            coin_id: account("ship.auspice.testnet"),
+            account_id: account("alice.testnet"),
+            kind: "genesis".into(),
+            door_id: None,
+            approved: true,
+            expires_at_ns: 0,
+            max_allocation: U128(50),
+            wasm_hash: hex(&[9; 32]),
+            captcha_token_hash: "demo-token-hash".into(),
+        };
+        callback_context(200, PromiseResult::Successful(near_sdk::serde_json::to_vec(&result).unwrap()));
+        token.on_human_check_result(0);
+        assert_eq!(token.get_human_approval(account("alice.testnet")).unwrap().expires_at_ns, 1_200);
     }
 
     #[test]

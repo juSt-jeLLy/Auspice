@@ -6,6 +6,21 @@ import { factoryId } from "@/lib/near";
 import { templateShareUrl, templates, type LaunchTemplate } from "@/lib/launch-config";
 
 const DAY_NS = 86_400_000_000_000n;
+const HOUR_NS = 3_600_000_000_000n;
+const DEMO_GENESIS_NS = 300_000_000_000n;
+const testnetDemoAvailable = process.env.NEXT_PUBLIC_TESTNET_DEMO_MODE === "true";
+const testnetDemoHumanVerifier = {
+  wasm_url: "https://test.fastfs.io/busymuseum5448.testnet/outlayer.testnet/0edabc6944e69a3a17d6dc288565966916172289d7c72cf9ef8fc042a1a4a869.wasm",
+  wasm_hash: "Dtq8aUTmmjoX1twohWWWaRYXIonXxyz574/AQqGkqGk=",
+  wasm_build_target: "wasm32-wasip2",
+  secrets_profile: "testnet-demo",
+  secrets_account_id: "busymuseum5448.testnet",
+  expected_hostname: "web-tau-tan-79.vercel.app",
+  genesis_action: "auspice_testnet_demo",
+  signal_action: "auspice_testnet_demo",
+  approval_lifetime_ns: "600000000000",
+  testnet_demo: true,
+};
 type Template = LaunchTemplate;
 const templateOptions: Array<{ id: Template; number: string; title: string; description: string }> = [
   { id: "Normal", number: "01", title: "Normal", description: "Vested creator reserve" },
@@ -36,6 +51,7 @@ export default function CreatePage() {
   const [curveVirtualNear, setCurveVirtualNear] = useState("1"); const [curveMaxBuy, setCurveMaxBuy] = useState("0.2"); const [curveMaxSell, setCurveMaxSell] = useState("1000");
   const [decayEnabled, setDecayEnabled] = useState(false); const [dailyDecayBps, setDailyDecayBps] = useState("100"); const [decayStartDays, setDecayStartDays] = useState("1");
   const [eventWasmUrl, setEventWasmUrl] = useState(process.env.NEXT_PUBLIC_VERIFIER_WASM_URL ?? ""); const [eventWasmHash, setEventWasmHash] = useState(process.env.NEXT_PUBLIC_VERIFIER_WASM_HASH ?? "");
+  const [testnetDemo, setTestnetDemo] = useState(false);
   const [notice, setNotice] = useState<string | null>(null); const [busy, setBusy] = useState(false);
 
   useEffect(() => {
@@ -47,6 +63,7 @@ export default function CreatePage() {
     if (preset === "fortress") { setTemplate("Fortress"); setName("Fortress Coin"); setSymbol("FORT"); setSupply("1000000"); setGenesisCap("5000"); }
     if (preset === "work") { setTemplate("WorkToMint"); setName("Proof of Work"); setSymbol("WORK"); setSupply("1000000"); setWorkDifficulty("16"); setWorkUserCap("1000"); }
     if (preset === "market") { setTemplate("BondingCurve"); setName("Locked Curve"); setSymbol("LOCK"); setSupply("1000000"); setCurveVirtualNear("1"); setCurveMaxBuy("0.2"); setCurveMaxSell("1000"); }
+    if (testnetDemoAvailable && params.get("demo") === "1") setTestnetDemo(true);
   }, []);
 
   const submit = async (event: React.FormEvent) => {
@@ -55,7 +72,9 @@ export default function CreatePage() {
     try {
       const total = BigInt(supply || "0"); const genesisReserve = total * 70n / 100n; const mechanicReserve = total - genesisReserve;
       if (total <= 0n || BigInt(genesisCap || "0") <= 0n) throw new Error("Supply and Genesis cap must be positive.");
-      const now = BigInt(Date.now()) * 1_000_000n; const genesisClose = now + DAY_NS;
+      const now = BigInt(Date.now()) * 1_000_000n;
+      const genesisOpen = testnetDemo ? now - HOUR_NS : now + HOUR_NS;
+      const genesisClose = testnetDemo ? now + DEMO_GENESIS_NS : now + DAY_NS;
       let sourceId = ""; let sourceUrl = ""; let predicate: Record<string, unknown> = {};
       if (template === "GithubRelease") { const parts = repository.trim().split("/"); if (parts.length !== 2 || parts.some((part) => !part)) throw new Error("Use GitHub repository format owner/repository."); sourceId = `github_release:${repository.trim()}`; sourceUrl = `https://api.github.com/repos/${repository.trim()}/releases/latest`; predicate = { version: 1, required_tag: requiredTag.trim() || null, minimum_magnitude_x10: null, expected_winner: null, required_text: null, minimum_rainfall_mm_x10: null }; }
       if (template === "Rainfall") { const lat = Number(latitude); const lon = Number(longitude); const threshold = Math.round(Number(rainThreshold) * 10); if (!Number.isFinite(lat) || lat < -90 || lat > 90 || !Number.isFinite(lon) || lon < -180 || lon > 180 || threshold <= 0 || threshold > 65_535) throw new Error("Enter valid coordinates and a positive rainfall threshold."); sourceId = `open_meteo_rain:${lat},${lon}`; sourceUrl = `https://api.open-meteo.com/v1/forecast?latitude=${encodeURIComponent(String(lat))}&longitude=${encodeURIComponent(String(lon))}&current=rain`; predicate = { version: 1, required_tag: null, minimum_magnitude_x10: null, expected_winner: null, required_text: null, minimum_rainfall_mm_x10: threshold }; }
@@ -73,11 +92,11 @@ export default function CreatePage() {
       if (template === "Fortress" && (!(wallet > 0 && wallet <= 100) || !(transfer > 0 && transfer <= wallet) || Number(cooldownSeconds) < 0 || fee < 0 || fee > 1000 || intervalDays < 1 || decayStep < 0 || decayStep > fee)) throw new Error("Check the Fortress limits and fee-decay schedule.");
       if (decayEnabled && (Number(dailyDecayBps) < 1 || Number(dailyDecayBps) > 1000 || Number(decayStartDays) < 0)) throw new Error("Circulation decay must be 1–1000 bps/day and start after Genesis.");
       const humanHash = process.env.NEXT_PUBLIC_HUMAN_VERIFIER_WASM_HASH ?? ""; const humanUrl = process.env.NEXT_PUBLIC_HUMAN_VERIFIER_WASM_URL ?? ""; const humanProject = process.env.NEXT_PUBLIC_HUMAN_VERIFIER_PROJECT_ID ?? "";
-      if (!humanHash || !humanUrl || !humanProject) throw new Error("Human verifier public configuration is missing.");
+      if (!testnetDemo && (!humanHash || !humanUrl || !humanProject)) throw new Error("Human verifier public configuration is missing.");
       const protection = template === "Normal" || template === "Fortress" ? { creator_vesting: { reserve: mechanicReserve.toString(), cliff_at_ns: rawU64(genesisClose + BigInt(cliffDays) * DAY_NS), ends_at_ns: rawU64(genesisClose + BigInt(cliffDays + durationDays) * DAY_NS) }, max_wallet: template === "Fortress" ? (total * BigInt(Math.round(wallet * 100)) / 10_000n).toString() : null, max_transfer: template === "Fortress" ? (total * BigInt(Math.round(transfer * 100)) / 10_000n).toString() : null, transfer_cooldown_ns: template === "Fortress" ? rawU64(BigInt(Number(cooldownSeconds)) * 1_000_000_000n) : null, initial_burn_fee_bps: template === "Fortress" ? fee : 0, fee_decay_start_ns: rawU64(genesisClose + BigInt(Number(feeDecayDelayDays)) * DAY_NS), fee_decay_interval_ns: rawU64(template === "Fortress" ? BigInt(intervalDays) * DAY_NS : 0n), fee_decay_bps: template === "Fortress" ? decayStep : 0 } : null;
       const config = {
-        creator_id: accountId, maximum_mintable_supply: total.toString(), genesis_reserve: genesisReserve.toString(), genesis_user_cap: genesisCap, genesis_price_yocto_near_per_token: "1", genesis_open_at_ns: rawU64(now + 3_600_000_000_000n), genesis_close_at_ns: rawU64(genesisClose),
-        human_verifier: { wasm_url: humanUrl, wasm_hash: hexToBase64(humanHash), wasm_build_target: "wasm32-wasip2", secrets_profile: "production", secrets_account_id: humanProject.split("/")[0], expected_hostname: new URL(process.env.NEXT_PUBLIC_SITE_URL ?? "https://web-tau-tan-79.vercel.app").host, genesis_action: "auspice_genesis", signal_action: "auspice_signal", approval_lifetime_ns: rawU64(600_000_000_000n) }, outlayer_account_id: "outlayer.testnet", max_signal_age_ns: rawU64(900_000_000_000n), no_creator_genesis_allocation: true,
+        creator_id: accountId, maximum_mintable_supply: total.toString(), genesis_reserve: genesisReserve.toString(), genesis_user_cap: genesisCap, genesis_price_yocto_near_per_token: "1", genesis_open_at_ns: rawU64(genesisOpen), genesis_close_at_ns: rawU64(genesisClose),
+        human_verifier: testnetDemo ? testnetDemoHumanVerifier : { wasm_url: humanUrl, wasm_hash: hexToBase64(humanHash), wasm_build_target: "wasm32-wasip2", secrets_profile: "production", secrets_account_id: humanProject.split("/")[0], expected_hostname: new URL(process.env.NEXT_PUBLIC_SITE_URL ?? "https://web-tau-tan-79.vercel.app").host, genesis_action: "auspice_genesis", signal_action: "auspice_signal", approval_lifetime_ns: rawU64(600_000_000_000n), testnet_demo: false }, outlayer_account_id: "outlayer.testnet", max_signal_age_ns: rawU64(900_000_000_000n), no_creator_genesis_allocation: true,
         doors: template === "GithubRelease" || template === "Rainfall" ? [{ door_id: 0, template, source_id: sourceId, source_url: sourceUrl, predicate, verifier_wasm_url: eventWasmUrl, verifier_wasm_hash: eventWasmHash, verifier_build_target: "wasm32-wasip2", reserve: mechanicReserve.toString(), user_cap: doorCap, claim_window_ns: rawU64(DAY_NS), new_humans_only: true }] : [],
         streak: template === "Streak" ? { reserve: mechanicReserve.toString(), starts_at_ns: rawU64(genesisClose), day_length_ns: rawU64(DAY_NS), daily_target: Number(dailyTarget), daily_participant_cap: Number(dailyCap), mint_per_checkin: dailyMint, missed_day_burn: missedDayBurn } : null,
         proofbound: template === "Proofbound" ? { creator_reserve: creatorReward, voter_reserve: voterReward, commitments: [{ commitment_id: 0, statement: commitmentStatement.trim(), evidence_requirement: evidenceRequirement.trim(), evidence_deadline_ns: rawU64(genesisClose + BigInt(Number(commitmentDays)) * DAY_NS), vote_duration_ns: rawU64(BigInt(Number(voteHours)) * 3_600_000_000_000n), quorum: Number(quorum), pass_bps: Number(passBps), creator_reward: creatorReward, voter_reward: voterReward }] } : null,
@@ -102,6 +121,8 @@ export default function CreatePage() {
     {template === "Streak" ? <><label>Daily target<input inputMode="numeric" value={dailyTarget} onChange={(event) => setDailyTarget(event.target.value.replace(/\D/g, ""))} required /></label><label>Daily participant cap<input inputMode="numeric" value={dailyCap} onChange={(event) => setDailyCap(event.target.value.replace(/\D/g, ""))} required /></label><label>Mint per checker<input inputMode="numeric" value={dailyMint} onChange={(event) => setDailyMint(event.target.value.replace(/\D/g, ""))} required /></label><label>Missed-day reserve burn<input inputMode="numeric" value={missedDayBurn} onChange={(event) => setMissedDayBurn(event.target.value.replace(/\D/g, ""))} required /></label></> : null}
     {template === "Proofbound" ? <><label>Public commitment<textarea value={commitmentStatement} onChange={(event) => setCommitmentStatement(event.target.value)} maxLength={280} required /></label><label>Required evidence<textarea value={evidenceRequirement} onChange={(event) => setEvidenceRequirement(event.target.value)} maxLength={280} required /></label><label>Evidence deadline (days after Genesis)<input inputMode="numeric" value={commitmentDays} onChange={(event) => setCommitmentDays(event.target.value.replace(/\D/g, ""))} required /></label><label>Vote duration (hours)<input inputMode="numeric" value={voteHours} onChange={(event) => setVoteHours(event.target.value.replace(/\D/g, ""))} required /></label><label>Genesis-voter quorum<input inputMode="numeric" value={quorum} onChange={(event) => setQuorum(event.target.value.replace(/\D/g, ""))} required /></label><label>Required yes vote (bps)<input inputMode="numeric" value={passBps} onChange={(event) => setPassBps(event.target.value.replace(/\D/g, ""))} required /></label><label>Creator locked reward<input inputMode="numeric" value={creatorReward} onChange={(event) => setCreatorReward(event.target.value.replace(/\D/g, ""))} required /></label><label>Verified-voter reward<input inputMode="numeric" value={voterReward} onChange={(event) => setVoterReward(event.target.value.replace(/\D/g, ""))} required /></label></> : null}
     <label className="check"><input type="checkbox" checked={decayEnabled} onChange={(event) => setDecayEnabled(event.target.checked)} />Enable immutable circulation decay</label>{decayEnabled ? <div className="subform"><label>Daily decay (basis points, max 1000)<input inputMode="numeric" value={dailyDecayBps} onChange={(event) => setDailyDecayBps(event.target.value.replace(/\D/g, ""))} required /></label><label>Decay starts (days after Genesis)<input inputMode="numeric" value={decayStartDays} onChange={(event) => setDecayStartDays(event.target.value.replace(/\D/g, ""))} required /></label><p className="notice">Decay settles lazily on transfers or by public settlement. The dashboard shows each connected wallet’s pending amount before it is burned.</p></div> : null}
+    {testnetDemoAvailable ? <label className="check"><input type="checkbox" checked={testnetDemo} onChange={(event) => setTestnetDemo(event.target.checked)} />Use the explicit testnet demo approval (five-minute Genesis; no CAPTCHA)</label> : null}
+    {testnetDemo ? <p className="notice">For the live walkthrough only: the request still runs through the hash-pinned OutLayer callback and remains wallet-bound, but uses the deterministic testnet verifier instead of Cloudflare Turnstile.</p> : null}
     <div className="warning"><b>Immutable at launch</b><p>70% is reserved for human-gated Genesis. The selected mechanic controls the remaining 30%; protection, proof difficulty, vesting, curve liquidity, and decay cannot be edited later.</p></div><div className="actions"><button className="button yellow" disabled={busy}>{busy ? "Waiting for wallet…" : accountId ? "Publish immutable coin" : "Connect wallet to publish"}</button><button type="button" className="button" onClick={() => navigator.clipboard.writeText(share)}>Copy template link</button></div>{notice ? <p className="notice" role="status">{notice}</p> : null}
   </form></main>;
 }

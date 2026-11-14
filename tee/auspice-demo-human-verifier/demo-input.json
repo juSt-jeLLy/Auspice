@@ -1,0 +1,10 @@
+{
+  "request_id": 7,
+  "request_nonce": "0123456789abcdef",
+  "coin_id": "demo.auspice-yagnesh.testnet",
+  "account_id": "busymuseum5448.testnet",
+  "kind": "genesis",
+  "door_id": null,
+  "captcha_token": "auspice-testnet-demo",
+  "expected_wasm_hash": "0edabc6944e69a3a17d6dc288565966916172289d7c72cf9ef8fc042a1a4a869"
+}

@@ -1,0 +1,13 @@
+{
+  "request_id": 7,
+  "request_nonce": "0123456789abcdef",
+  "coin_id": "diagnostic.auspice-yagnesh.testnet",
+  "account_id": "busymuseum5448.testnet",
+  "kind": "genesis",
+  "door_id": null,
+  "captcha_token": "intentionally-invalid-diagnostic-token",
+  "expected_hostname": "web-tau-tan-79.vercel.app",
+  "expected_action": "auspice_genesis",
+  "max_allocation": "1000",
+  "expected_wasm_hash": "350b17d09fa390a28fbfdae49579206b8777ed48f07daef9db14a959782564ec"
+}

@@ -44,6 +44,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "auspice-demo-human-verifier"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+]
+
+[[package]]
 name = "auspice-factory"
 version = "0.1.0"
 dependencies = [
@@ -58,6 +67,7 @@ version = "0.1.0"
 dependencies = [
  "serde",
  "serde_json",
+ "wasi-http-client",
 ]
 
 [[package]]
