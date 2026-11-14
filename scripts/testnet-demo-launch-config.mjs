@@ -45,7 +45,7 @@ const output = {
       expected_hostname: "web-tau-tan-79.vercel.app",
       genesis_action: "auspice_testnet_demo",
       signal_action: "auspice_testnet_demo",
-      approval_lifetime_ns: (10n * 60n * 1_000_000_000n).toString(),
+      approval_lifetime_ns: "__AUSPICE_U64_600000000000__",
       testnet_demo: true,
     },
     outlayer_account_id: "outlayer.testnet",
@@ -69,4 +69,4 @@ const output = {
   },
 };
 
-process.stdout.write(JSON.stringify(output));
+process.stdout.write(JSON.stringify(output).replace(/"__AUSPICE_U64_(\d+)__"/g, "$1"));
