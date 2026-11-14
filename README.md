@@ -3,11 +3,10 @@
 ## Supply follows rules, not insiders.
 
 **Auspice is the fair-launch engine for memes that need to keep their word.**
-It lets anyone publish a fixed-supply [NEP-141][nep-141] coin whose Genesis
-distribution and future supply are governed by rules that can be inspected,
-tested, and never rewritten after launch. Human allocation and real-world
-events are verified by hash-pinned programs running in an OutLayer TEE, then
-settled by the coin contract on NEAR.
+Real people enter at Genesis through TEE-verified human allocation; later
+supply can move only through public rules—rituals, work, commitments,
+TEE-verified real-world signals, or locked-market mechanics. Every outcome is
+settled by an immutable NEAR coin contract.
 
 There is no founder mint button, no upgrade authority on a launched coin, and no backend that can rewrite economics after people join.
 
