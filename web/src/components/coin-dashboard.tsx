@@ -9,7 +9,7 @@ import { Turnstile } from "./turnstile";
 import market from "./coin-market.module.css";
 
 const STORAGE_DEPOSIT = "1250000000000000000000";
-const EXECUTION_DEPOSIT = "100000000000000000000000";
+const EXECUTION_DEPOSIT = "2000000000000000000000000";
 // OutLayer requests reserve 200 Tgas for the verifier plus a 30–40 Tgas
 // private callback. The wallet transaction must therefore provide more than
 // the default 100 Tgas or NEAR rejects it before the TEE is reached.
