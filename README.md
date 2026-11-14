@@ -5,7 +5,9 @@
 **Auspice is the fair-launch engine for memes that need to keep their word.**
 It lets anyone publish a fixed-supply [NEP-141][nep-141] coin whose Genesis
 distribution and future supply are governed by rules that can be inspected,
-tested, and never rewritten after launch.
+tested, and never rewritten after launch. Human allocation and real-world
+events are verified by hash-pinned programs running in an OutLayer TEE, then
+settled by the coin contract on NEAR.
 
 There is no founder mint button, no upgrade authority on a launched coin, and no backend that can rewrite economics after people join.
 
@@ -36,9 +38,11 @@ forever. The frontend makes the rules understandable and lets a wallet sign
 actions, but it has no permission to change the rules or issue supply.
 
 In plain terms: **real people enter at Genesis, then the coin earns its next
-supply movement through a public rule.** A community can keep a streak alive,
-complete work, vote on a proof, wait for a real-world signal, or trade against
-a reserve that nobody can withdraw. Every outcome leaves a receipt.
+supply movement through a public rule.** A human check is performed inside the
+TEE before Genesis allocation; later, a TEE can verify a frozen real-world
+source before opening a Signal Door. A community can also keep a streak alive,
+complete work, vote on a proof, or trade against a reserve that nobody can
+withdraw. Every outcome leaves a receipt.
 
 The first distribution is intentionally separated from the later mechanic.
 Genesis gives real participants a capped way to enter; the remaining reserve
