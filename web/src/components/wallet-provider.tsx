@@ -25,8 +25,13 @@ const WalletContext = createContext<WalletState | null>(null);
 let selectorPromise: Promise<WalletSelector> | undefined;
 
 function selector() {
+  // Wallet Selector needs an absolute URL, whereas ordinary dashboard reads
+  // can use the relative same-origin relay directly.
+  const nodeUrl = rpcUrl.startsWith("/") && typeof window !== "undefined"
+    ? `${window.location.origin}${rpcUrl}`
+    : rpcUrl;
   selectorPromise ??= setupWalletSelector({
-    network: { networkId, nodeUrl: rpcUrl, helperUrl: "https://helper.testnet.near.org", explorerUrl: "https://testnet.nearblocks.io", indexerUrl: "https://api.kitwallet.app" },
+    network: { networkId, nodeUrl, helperUrl: "https://helper.testnet.near.org", explorerUrl: "https://testnet.nearblocks.io", indexerUrl: "https://api.kitwallet.app" },
     modules: [setupMeteorWallet(), setupIntearWallet(), setupSender(), setupHotWallet()],
   });
   return selectorPromise;

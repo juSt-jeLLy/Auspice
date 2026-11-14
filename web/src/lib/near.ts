@@ -1,7 +1,8 @@
 export const networkId = process.env.NEXT_PUBLIC_NETWORK_ID ?? "testnet";
-// dRPC permits browser CORS on testnet. The official RPC is server-oriented
-// and FastNEAR's free endpoint is easily rate-limited by dashboard fan-out.
-export const rpcUrl = process.env.NEXT_PUBLIC_RPC_URL ?? "https://near-testnet.drpc.org";
+// All application reads travel through the same-origin relay. It keeps the
+// official RPC's lack of browser CORS, and third-party free-tier limits, out
+// of the user-facing dashboard and wallet setup.
+export const rpcUrl = process.env.NEXT_PUBLIC_RPC_URL ?? "/api/near-rpc";
 export const factoryId = process.env.NEXT_PUBLIC_FACTORY_ID ?? "auspice.testnet";
 export const coinId = process.env.NEXT_PUBLIC_COIN_ID ?? "";
 
