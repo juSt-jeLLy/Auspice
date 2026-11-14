@@ -1,6 +1,9 @@
 # Auspice: programmable fair launches
 
-**Status:** source-complete for the current testnet milestone; deployment is deferred.
+**Status:** current Coin WASM is globally deployed and pinned by the testnet
+factory. A fresh Locked Market test coin, `alcv.auspice-yagnesh.testnet`, was
+created on 2026-11-14. Its scheduled Genesis opens at 20:01 IST and closes
+roughly 24 hours later. Full wallet/TEE lifecycle proof remains in progress.
 
 ## Product
 

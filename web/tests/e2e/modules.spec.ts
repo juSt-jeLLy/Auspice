@@ -2,20 +2,25 @@ import { expect, test, type Page } from "@playwright/test";
 
 test("create exposes presets, protection, work, locked market, and optional decay configuration", async ({ page }) => {
   await page.goto("/create");
-  const template = page.getByLabel("Launch template");
-  await expect(template).toHaveValue("Normal");
-  await expect(template.locator("option")).toHaveCount(8);
+  const picker = page.getByRole("button", { name: /Normal.*Vested creator reserve/ });
+  await expect(picker).toBeVisible();
+  await picker.click();
+  await expect(page.getByRole("option")).toHaveCount(8);
+  await page.getByRole("option", { name: /Normal.*Vested creator reserve/ }).click();
   await expect(page.getByLabel("Creator vesting cliff (days after Genesis)")).toBeVisible();
 
-  await template.selectOption("Fortress");
+  await picker.click();
+  await page.getByRole("option", { name: /Fortress.*Immutable transfer rules/ }).click();
   await expect(page.getByLabel("Maximum wallet (% supply)")).toBeVisible();
   await expect(page.getByLabel("Fee reduction per interval (bps)")).toBeVisible();
 
-  await template.selectOption("WorkToMint");
+  await page.getByRole("button", { name: /Fortress.*Immutable transfer rules/ }).click();
+  await page.getByRole("option", { name: /Work-to-Mint.*Proof earns supply/ }).click();
   await expect(page.getByLabel("Proof difficulty (leading zero bits, 4–24)")).toHaveValue("16");
   await expect(page.getByLabel("Mint cap per wallet")).toBeVisible();
 
-  await template.selectOption("BondingCurve");
+  await page.getByRole("button", { name: /Work-to-Mint.*Proof earns supply/ }).click();
+  await page.getByRole("option", { name: /Locked Market.*Curve with no withdrawal/ }).click();
   await expect(page.getByLabel("Virtual NEAR reserve")).toHaveValue("1");
   await expect(page.getByLabel("Maximum buy (NEAR)")).toBeVisible();
   await expect(page.getByLabel("Maximum sell (tokens)")).toHaveValue("1000");
