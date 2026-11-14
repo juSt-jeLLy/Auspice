@@ -2,17 +2,19 @@
 
 ## Supply follows rules, not insiders.
 
-**Auspice is a permissionless NEAR launch platform for memecoins with immutable mechanics.** A creator launches a fixed-supply [NEP-141][nep-141] token, chooses the rule that gives the meme its behaviour, and freezes that rule at birth.
-
-> **Track:** [Memecoins With Mechanics][hackathon] — *The joke needs rules.*
->
-> **Tagline:** Supply follows rules, not insiders.
+**Auspice is the fair-launch engine for memes that need to keep their word.**
+It lets anyone publish a fixed-supply [NEP-141][nep-141] coin whose Genesis
+distribution and future supply are governed by rules that can be inspected,
+tested, and never rewritten after launch.
 
 There is no founder mint button, no upgrade authority on a launched coin, and no backend that can rewrite economics after people join.
 
 ## The problem
 
-Most token launches ask people to trust a creator, private server, or dashboard. Those systems can change allocation rules, favour bots, reopen supply, withdraw liquidity, or quietly alter the deal after launch.
+Most token launches ask people to trust a creator, private server, or dashboard.
+Those systems can change allocation rules, favour bots, reopen supply, withdraw
+liquidity, or quietly alter the deal after launch. Communities are left trying
+to audit promises after tokens have already been sold.
 
 Auspice makes the launch rule inspectable and contract-enforced:
 
@@ -25,18 +27,36 @@ Auspice makes the launch rule inspectable and contract-enforced:
 
 The meme is not the chart. **The mechanic is the product.**
 
-## Hackathon fit
+## How Auspice solves it
 
-The [NEAR Hackathon][hackathon] describes **Memecoins With Mechanics** as memecoins where supply reacts to community rules, treasuries have constraints, and on-chain rituals/challenges do something. Auspice puts those mechanisms in the NEP-141 contract instead of a backend that could be switched off.
+Auspice turns a launch into an economic agreement written before the first
+token is distributed. A creator chooses an allocation structure and a
+mechanic; the factory creates a coin whose contract stores those choices
+forever. The frontend makes the rules understandable and lets a wallet sign
+actions, but it has no permission to change the rules or issue supply.
 
-The Daily Streak template directly addresses the track's streak-coin prompt:
+In plain terms: **real people enter at Genesis, then the coin earns its next
+supply movement through a public rule.** A community can keep a streak alive,
+complete work, vote on a proof, wait for a real-world signal, or trade against
+a reserve that nobody can withdraw. Every outcome leaves a receipt.
 
-| Requirement | Auspice implementation |
-| --- | --- |
-| NEP-141 mechanic in the contract | Every coin is an NEP-141 token. The streak check-in and daily settlement methods execute the target, mint, burn, and reset rules on-chain. |
-| Fixed launch parameters | Daily target, reward, missed-day reserve removal, windows, and reserve are immutable configuration and public views. |
-| Demo-grade Sybil resistance | Genesis uses one-use, wallet-bound Turnstile approvals returned from a pinned TEE verifier. Its limits are stated below. |
-| Streak, progress, mint/burn log | Streak status, the coin dashboard, and contract events expose daily progress, current/high streak, mint totals, and removed reserve. |
+The first distribution is intentionally separated from the later mechanic.
+Genesis gives real participants a capped way to enter; the remaining reserve
+then follows a rule the community can watch and verify. That rule may be a
+daily ritual, completed work, a published commitment, an external event, or a
+protected market. It is not a cron job or an operator decision.
+
+For example, a Daily Streak coin has a target, a fixed daily reward, a fixed
+miss penalty, a daily window, and a ritual reserve at launch. Holders check in
+once. After the window, anyone can settle it: meeting the target mints the
+published reward to that day’s participants; missing it permanently removes
+the published reserve slice and resets the streak. The current streak, high
+score, participation progress, total mints, and total removals remain public
+state and event history.
+
+This same design pattern runs through every template: supply can move only by
+the rule committed to in the Birth Certificate, and a rule that is not met
+cannot be replaced with a creator override.
 
 ## What launches can do
 
@@ -210,7 +230,6 @@ Artifact hashes and deployment order are in [docs/DEPLOYMENT.md](./docs/DEPLOYME
 
 [MIT](./LICENSE)
 
-[hackathon]: https://nearhackathon.com/
 [nep-141]: https://github.com/near/NEPs/blob/master/neps/nep-0141.md
 [nep-145]: https://github.com/near/NEPs/blob/master/neps/nep-0145.md
 [nep-148]: https://github.com/near/NEPs/blob/master/neps/nep-0148.md
