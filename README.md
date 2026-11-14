@@ -61,6 +61,34 @@ This same design pattern runs through every template: supply can move only by
 the rule committed to in the Birth Certificate, and a rule that is not met
 cannot be replaced with a creator override.
 
+## Start here
+
+| Open | What to look for |
+| --- | --- |
+| [Auspice testnet app](https://web-tau-tan-79.vercel.app) | The factory explorer, launch presets, individual Launch Passports, and the Demo Arena. |
+| [Factory on NEAR Explorer](https://testnet.nearblocks.io/address/auspice-yagnesh.testnet) | The public factory account that indexes permissionless Auspice launches. |
+| [Deployment guide](./docs/DEPLOYMENT.md) | Artifact hashes, testnet deployment order, and the reproducible build handoff. |
+| [Contract source](./contracts/coin/src/lib.rs) | The NEP-141 implementation and the rules that control reserves, settlement, protections, and mechanics. |
+
+### A three-minute reviewer path
+
+1. Open **Coins** and select any factory-launched coin. The Launch Passport
+   shows its frozen supply split, dates, mechanism, verifier/source hashes,
+   and protection configuration.
+2. Open **Verify** and compare that public state with the contract's Birth
+   Certificate and supply-status views. This answers what can mint, who can
+   mint it, and what permanently removes it.
+3. Open **Arena** to submit a public Fortress protection probe. It records a
+   proposed transfer and its allow/block reason without moving tokens. The
+   named liquidity-withdrawal and configuration-rewrite attempts demonstrate
+   that those paths are deliberately unavailable.
+4. Open **Create** to inspect the immutable parameters required before a new
+   coin can be launched. The wallet—not Auspice—approves the factory
+   transaction.
+
+The point of this path is to show the rule, the action, and the receipt—not to
+ask a reviewer to trust a landing-page claim.
+
 ## What launches can do
 
 Every coin begins with fixed supply rails:
